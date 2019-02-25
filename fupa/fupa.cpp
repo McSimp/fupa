@@ -311,12 +311,53 @@ public:
 
     void LoadAllSections()
     {
+        // Sectors are stored sequentially after the header information, so just read them in order
         for (uint32_t i = 0; i < m_outerHeader.NumSections; i++)
         {
             if (m_sectionDescriptors[i].Size > 0)
             {
                 m_reader->ReadData(m_sectionPointers[i], m_sectionDescriptors[i].Size);
             }
+        }
+    }
+
+    bool IsReferenceValid(SectionReference& ref)
+    {
+        if (ref.Section >= m_outerHeader.NumSections)
+        {
+            return false;
+        }
+
+        if (ref.Offset >= m_sectionDescriptors[ref.Section].Size)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    void ApplyRelocations()
+    {
+        // Each relocation entry is a reference to some offset in a section. Located at this offset is another reference
+        // to a section and an offset. This latter reference is converted into a real pointer (8 bytes since we only deal
+        // with 64-bit) and written to the location specified in the relocation.
+        for (uint32_t i = 0; i < m_outerHeader.NumRelocations; i++)
+        {
+            SectionReference& relocLoc = m_relocationDescriptors[i];
+            if (!IsReferenceValid(relocLoc))
+            {
+                throw std::runtime_error(fmt::format("Relocation descriptor {} is invalid: offset 0x{:x} in section {}", i, relocLoc.Offset, relocLoc.Section));
+            }
+
+            // Get the reference at the location referenced by the relocation entry
+            SectionReference* ref = reinterpret_cast<SectionReference*>(m_sectionPointers[relocLoc.Section] + relocLoc.Offset);
+            if (!IsReferenceValid(*ref))
+            {
+                throw std::runtime_error(fmt::format("Relocation {}'s inner reference is invalid: offset 0x{:x} in section {}", i, ref->Offset, ref->Section));
+            }
+
+            // Update the reference data to be a real pointer
+            *reinterpret_cast<char**>(ref) = m_sectionPointers[ref->Section] + ref->Offset;
         }
     }
 
@@ -356,5 +397,5 @@ int main()
     PakFile pak("common_sp.rpak", std::make_unique<PreprocessedFileReader>(name));
     pak.Initialize();
     pak.LoadAllSections();
-
+    pak.ApplyRelocations();
 }
