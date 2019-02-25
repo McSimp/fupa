@@ -22,6 +22,11 @@ public:
     {
         m_file.seekg(skipBytes, std::ios::cur);
         m_file.read(buffer, bytesToRead);
+        spdlog::trace("Offset after reading 0x{:x} bytes (skipping 0x{:x}): 0x{:x}", bytesToRead, skipBytes, m_file.tellg());
+        if (m_file.fail())
+        {
+            throw std::runtime_error("File read failed");
+        }
     }
 
 private:
@@ -270,7 +275,7 @@ public:
         for (uint32_t i = 0; i < m_outerHeader.NumRelocations; i++)
         {
             SectionReference& reloc = m_relocationDescriptors[i];
-            spdlog::debug("{}: Section: {}, Offset: 0x{:x}", i, reloc.Section, reloc.Offset);
+            spdlog::trace("{}: Section: {}, Offset: 0x{:x}", i, reloc.Section, reloc.Offset);
         }
 
         // Read asset definitions
@@ -279,6 +284,11 @@ public:
 
         m_assetDefinitions = std::make_unique<AssetDefinition[]>(m_outerHeader.NumAssets);
         m_reader->ReadData(reinterpret_cast<char*>(m_assetDefinitions.get()), sizeof(AssetDefinition) * m_outerHeader.NumAssets);
+        for (uint32_t i = 0; i < m_outerHeader.NumAssets; i++)
+        {
+            char* assetType = reinterpret_cast<char*>(&m_assetDefinitions[i].Type);
+            spdlog::debug("{}: {:.4s}", i, assetType);
+        }
 
         // Read extra header
         spdlog::debug("====== Extra Header ======");
@@ -296,6 +306,17 @@ public:
 
             m_unknownBlock = std::make_unique<char[]>(m_unknownBlockSize);
             m_reader->ReadData(reinterpret_cast<char*>(m_unknownBlock.get()), m_unknownBlockSize);
+        }
+    }
+
+    void LoadAllSections()
+    {
+        for (uint32_t i = 0; i < m_outerHeader.NumSections; i++)
+        {
+            if (m_sectionDescriptors[i].Size > 0)
+            {
+                m_reader->ReadData(m_sectionPointers[i], m_sectionDescriptors[i].Size);
+            }
         }
     }
 
@@ -329,9 +350,11 @@ private:
 int main()
 {
     spdlog::set_level(spdlog::level::debug);
-    //const char* name = "E:\\temp\\dumped_paks\\common_sp.rpak20";
-    const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak42";
+    const char* name = "E:\\temp\\dumped_paks\\common_sp.rpak21";
+    //const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
     //const char* name = "E:\\temp\\dumped_paks\\sp_training_loadscreen.rpak13";
     PakFile pak("common_sp.rpak", std::make_unique<PreprocessedFileReader>(name));
     pak.Initialize();
+    pak.LoadAllSections();
+
 }
