@@ -1,54 +1,11 @@
 #include "pch.h"
 
-namespace rtech {
-uint64_t(*AlignedHashFunc)(const char* data);
-uint64_t(*UnalignedHashFunc)(const char* data);
+#pragma comment (lib, "d3d11.lib")
 
-void ResolveFunctions()
-{
-    // Load rtech_game.dll - we need some functions from it
-    if (!SetDllDirectory(L"C:\\Games\\Origin\\Titanfall2\\bin\\x64_retail"))
-    {
-        throw std::runtime_error("Failed to set DLL search directory to Titanfall 2 directory");
-    }
+using Microsoft::WRL::ComPtr;
 
-    HANDLE hRtechLib = LoadLibrary(L"rtech_game.dll");
-    if (!hRtechLib)
-    {
-        throw std::runtime_error(fmt::format("Failed to load rtech_game.dll (Win32 Error = 0x{:x})", GetLastError()));
-    }
-
-    MEMORY_BASIC_INFORMATION mem;
-    if (!VirtualQuery(hRtechLib, &mem, sizeof(mem)))
-    {
-        throw std::runtime_error(fmt::format("VirtualQuery returned NULL (Win32 Error = 0x{:x})", GetLastError()));
-    }
-
-    char* base = (char*)mem.AllocationBase;
-    if (base == nullptr)
-    {
-        throw std::runtime_error("mem.AllocationBase was NULL");
-    }
-
-    rtech::AlignedHashFunc = reinterpret_cast<decltype(rtech::AlignedHashFunc)>(base + 0x3800);
-    rtech::UnalignedHashFunc = reinterpret_cast<decltype(rtech::UnalignedHashFunc)>(base + 0x3810);
-
-    // TODO: FreeLibrary at end of program
-}
-
-// TODO: Implement this myself
-uint64_t HashData(const char* data)
-{
-    if ((reinterpret_cast<uint64_t>(data) & 3) != 0)
-    {
-        return UnalignedHashFunc(data);
-    }
-    else
-    {
-        return AlignedHashFunc(data);
-    }
-}
-}
+ComPtr<ID3D11Device> dev;
+ComPtr<ID3D11DeviceContext> devCon;
 
 class IFileReader
 {
@@ -175,26 +132,156 @@ struct ShdrMetadata
     char* Name;
 };
 
-void ReplaceAll(std::string& source, const std::string& from, const std::string& to)
+DXGI_FORMAT TEXTURE_FORMATS[] = {
+    DXGI_FORMAT_BC1_UNORM,
+    DXGI_FORMAT_BC1_UNORM_SRGB,
+    DXGI_FORMAT_BC2_UNORM,
+    DXGI_FORMAT_BC2_UNORM_SRGB,
+    DXGI_FORMAT_BC3_UNORM,
+    DXGI_FORMAT_BC3_UNORM_SRGB,
+    DXGI_FORMAT_BC4_UNORM,
+    DXGI_FORMAT_BC4_SNORM,
+    DXGI_FORMAT_BC5_UNORM,
+    DXGI_FORMAT_BC5_SNORM,
+    DXGI_FORMAT_BC6H_UF16,
+    DXGI_FORMAT_BC6H_SF16,
+    DXGI_FORMAT_BC7_UNORM,
+    DXGI_FORMAT_BC7_UNORM_SRGB,
+    DXGI_FORMAT_R32G32B32A32_FLOAT,
+    DXGI_FORMAT_R32G32B32A32_UINT,
+    DXGI_FORMAT_R32G32B32A32_SINT,
+    DXGI_FORMAT_R32G32B32_FLOAT,
+    DXGI_FORMAT_R32G32B32_UINT,
+    DXGI_FORMAT_R32G32B32_SINT,
+    DXGI_FORMAT_R16G16B16A16_FLOAT,
+    DXGI_FORMAT_R16G16B16A16_UNORM,
+    DXGI_FORMAT_R16G16B16A16_UINT,
+    DXGI_FORMAT_R16G16B16A16_SNORM,
+    DXGI_FORMAT_R16G16B16A16_SINT,
+    DXGI_FORMAT_R32G32_FLOAT,
+    DXGI_FORMAT_R32G32_UINT,
+    DXGI_FORMAT_R32G32_SINT,
+    DXGI_FORMAT_R10G10B10A2_UNORM,
+    DXGI_FORMAT_R10G10B10A2_UINT,
+    DXGI_FORMAT_R11G11B10_FLOAT,
+    DXGI_FORMAT_R8G8B8A8_UNORM,
+    DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+    DXGI_FORMAT_R8G8B8A8_UINT,
+    DXGI_FORMAT_R8G8B8A8_SNORM,
+    DXGI_FORMAT_R8G8B8A8_SINT,
+    DXGI_FORMAT_R16G16_FLOAT,
+    DXGI_FORMAT_R16G16_UNORM,
+    DXGI_FORMAT_R16G16_UINT,
+    DXGI_FORMAT_R16G16_SNORM,
+    DXGI_FORMAT_R16G16_SINT,
+    DXGI_FORMAT_R32_FLOAT,
+    DXGI_FORMAT_R32_UINT,
+    DXGI_FORMAT_R32_SINT,
+    DXGI_FORMAT_R8G8_UNORM,
+    DXGI_FORMAT_R8G8_UINT,
+    DXGI_FORMAT_R8G8_SNORM,
+    DXGI_FORMAT_R8G8_SINT,
+    DXGI_FORMAT_R16_FLOAT,
+    DXGI_FORMAT_R16_UNORM,
+    DXGI_FORMAT_R16_UINT,
+    DXGI_FORMAT_R16_SNORM,
+    DXGI_FORMAT_R16_SINT,
+    DXGI_FORMAT_R8_UNORM,
+    DXGI_FORMAT_R8_UINT,
+    DXGI_FORMAT_R8_SNORM,
+    DXGI_FORMAT_R8_SINT,
+    DXGI_FORMAT_A8_UNORM,
+    DXGI_FORMAT_R9G9B9E5_SHAREDEXP,
+    DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM,
+    DXGI_FORMAT_D32_FLOAT,
+    DXGI_FORMAT_D16_UNORM
+};
+
+struct CompressionInfo
 {
-    std::string newString;
-    newString.reserve(source.length());  // avoids a few memory allocations
+    uint8_t BytesPerBlock;
+    uint8_t BlockSize;
+};
 
-    std::string::size_type lastPos = 0;
-    std::string::size_type findPos;
+CompressionInfo COMPRESSION_INFO[] = {
+    { 8, 4 },
+    { 8, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 8, 4 },
+    { 8, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 16, 4 },
+    { 12, 1 },
+    { 12, 1 },
+    { 12, 1 },
+    { 8, 1 },
+    { 8, 1 },
+    { 8, 1 },
+    { 8, 1 },
+    { 8, 1 },
+    { 8, 1 },
+    { 8, 1 },
+    { 8, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 2, 1 },
+    { 2, 1 },
+    { 2, 1 },
+    { 2, 1 },
+    { 2, 1 },
+    { 2, 1 },
+    { 2, 1 },
+    { 2, 1 },
+    { 2, 1 },
+    { 1, 1 },
+    { 1, 1 },
+    { 1, 1 },
+    { 1, 1 },
+    { 1, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 4, 1 },
+    { 2, 1 },
+};
 
-    while (std::string::npos != (findPos = source.find(from, lastPos)))
-    {
-        newString.append(source, lastPos, findPos - lastPos);
-        newString += to;
-        lastPos = findPos + from.length();
-    }
-
-    // Care for the rest after last occurrence
-    newString += source.substr(lastPos);
-
-    source.swap(newString);
-}
+struct TextureMetadata
+{
+    uint64_t Unknown1;
+    char* Name;
+    uint16_t Width; // This is the max - might not actually contain this in the rpak
+    uint16_t Height;
+    uint16_t Unknown2_ShouldBeZero;
+    uint16_t Format;
+    uint32_t DataSize;
+    uint32_t Unknown3;
+    uint8_t Unknown4;
+    uint8_t MipLevels;
+    uint8_t SkippedMips; // Number of mip levels that aren't present (starting from largest size)
+};
 
 const char* DATATABLE_TYPES[] = {
     "bool",
@@ -223,6 +310,27 @@ struct DatatableMetadata
 };
 
 #pragma pack(pop)
+
+void ReplaceAll(std::string& source, const std::string& from, const std::string& to)
+{
+    std::string newString;
+    newString.reserve(source.length());  // avoids a few memory allocations
+
+    std::string::size_type lastPos = 0;
+    std::string::size_type findPos;
+
+    while (std::string::npos != (findPos = source.find(from, lastPos)))
+    {
+        newString.append(source, lastPos, findPos - lastPos);
+        newString += to;
+        lastPos = findPos + from.length();
+    }
+
+    // Care for the rest after last occurrence
+    newString += source.substr(lastPos);
+
+    source.swap(newString);
+}
 
 const uint32_t kNumSlots = 4;
 
@@ -474,12 +582,75 @@ public:
         }
     }
 
+    void SaveTexture(TextureMetadata* metadata, char* textureData)
+    {
+        const uint64_t MIP_ALIGNMENT = 16;
+        D3D11_TEXTURE2D_DESC desc;
+        D3D11_SUBRESOURCE_DATA subResources[16];
+
+        if (metadata->Unknown2_ShouldBeZero)
+        {
+            spdlog::error("Cannot dump texture - Unknown2_ShouldBeZero was non-zero");
+            return;
+        }
+
+        if (metadata->Height == 0)
+        {
+            spdlog::error("Cannot dump texture - Height was zero");
+            return;
+        }
+
+        char* nextTextureData = textureData;
+        for (int32_t mip = metadata->MipLevels + metadata->SkippedMips - 1; mip >= metadata->SkippedMips; mip--)
+        {
+            int32_t width = std::max(1, metadata->Width >> mip);
+            int32_t height = std::max(1, metadata->Height >> mip);
+
+            uint8_t bytesPerBlock = COMPRESSION_INFO[metadata->Format].BytesPerBlock;
+            uint8_t blockSize = COMPRESSION_INFO[metadata->Format].BlockSize;
+
+            subResources[mip].pSysMem = nextTextureData;
+            subResources[mip].SysMemPitch = bytesPerBlock * ((width + blockSize - 1) / blockSize);
+            subResources[mip].SysMemSlicePitch = bytesPerBlock * ((width + blockSize - 1) / blockSize) * ((height + blockSize - 1) / blockSize);
+
+            nextTextureData += (subResources[mip].SysMemSlicePitch + MIP_ALIGNMENT - 1) & ~MIP_ALIGNMENT;
+        }
+
+        desc.Width = std::max(1, metadata->Width >> metadata->SkippedMips);
+        desc.Height = std::max(1, metadata->Height >> metadata->SkippedMips);
+        desc.MipLevels = metadata->MipLevels;
+        desc.ArraySize = 1;
+        desc.Format = TEXTURE_FORMATS[metadata->Format];
+        desc.SampleDesc.Count = 1;
+        desc.SampleDesc.Quality = 0;
+        desc.Usage = D3D11_USAGE_DEFAULT; // TTF2 has this as D3D11_USAGE_IMMUTABLE
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ; // TTF2 has this as 0
+        desc.MiscFlags = 0;
+
+        ID3D11Texture2D* tex = nullptr;
+        HRESULT hr = dev->CreateTexture2D(&desc, &subResources[metadata->SkippedMips], &tex);
+        spdlog::info("texture {}, hr = 0x{:x}", (void*)tex, hr);
+        std::string name = fmt::format("{}.dds", metadata->Name);
+        std::string realName = "textures\\" + name.substr(name.find_last_of("\\") + 1);
+        spdlog::info("out file = {}", realName);
+        hr = DirectX::SaveDDSTextureToFile(devCon.Get(), tex, realName.c_str());
+        spdlog::info("save hr = 0x{:x}", hr);
+    }
+
     void PrintAssets()
     {
         for (uint32_t i = 0; i < m_outerHeader.NumAssets; i++)
         {
             AssetDefinition& def = m_assetDefinitions[i];
-            if (def.Type == 0x72747874 || def.Type == 0x73646873) // txtr, shds
+            if (def.Type == 0x72747874) // txtr
+            {
+                TextureMetadata* metadata = reinterpret_cast<TextureMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
+                char* textureData = reinterpret_cast<char*>(m_sectionPointers[def.DataRef.Section] + def.DataRef.Offset);
+                spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}, Data: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name, (void*)textureData);
+                SaveTexture(metadata, textureData);
+            }
+            /*else if (def.Type == 0x73646873) // shds
             {
                 BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
                 spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name);
@@ -498,7 +669,7 @@ public:
             {
                 BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
                 spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Metadata: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, (void*)metadata);
-            }
+            }*/
         }
     }
 
@@ -629,17 +800,37 @@ int main()
 {
     spdlog::set_level(spdlog::level::debug);
 
-    rtech::ResolveFunctions();
+    rtech::Initialize("C:\\Games\\Origin\\Titanfall2\\bin\\x64_retail");
+
+    HRESULT hr = D3D11CreateDevice(
+        nullptr,
+        D3D_DRIVER_TYPE_HARDWARE,
+        nullptr,
+        0,
+        nullptr,
+        0,
+        D3D11_SDK_VERSION,
+        &dev,
+        nullptr,
+        &devCon);
+
+    if (FAILED(hr))
+    {
+        spdlog::critical("Failed to initialize D3D11 device");
+        return 1;
+    }
+
     spdlog::debug("hash = 0x{:x}", rtech::HashData("datatable/bt_player_conversations.rpak"));
 
-    const char* name = "E:\\temp\\dumped_paks\\common_sp.rpak21";
+    //const char* name = "E:\\temp\\dumped_paks\\common_sp.rpak21";
     //const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
     //const char* name = "E:\\temp\\dumped_paks\\sp_training_loadscreen.rpak13";
+    const char* name = "E:\\temp\\dumped_paks\\ui_mp.rpak";
     PakFile pak("common_sp.rpak", std::make_unique<PreprocessedFileReader>(name));
     pak.Initialize();
     pak.LoadAllSections();
     pak.ApplyRelocations();
     pak.PrintAssets();
-    pak.PrintDatatables();
-    
+    //system("pause");
+    //pak.PrintDatatables();
 }
