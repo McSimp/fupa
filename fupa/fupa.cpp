@@ -1,5 +1,55 @@
 #include "pch.h"
 
+namespace rtech {
+uint64_t(*AlignedHashFunc)(const char* data);
+uint64_t(*UnalignedHashFunc)(const char* data);
+
+void ResolveFunctions()
+{
+    // Load rtech_game.dll - we need some functions from it
+    if (!SetDllDirectory(L"C:\\Games\\Origin\\Titanfall2\\bin\\x64_retail"))
+    {
+        throw std::runtime_error("Failed to set DLL search directory to Titanfall 2 directory");
+    }
+
+    HANDLE hRtechLib = LoadLibrary(L"rtech_game.dll");
+    if (!hRtechLib)
+    {
+        throw std::runtime_error(fmt::format("Failed to load rtech_game.dll (Win32 Error = 0x{:x})", GetLastError()));
+    }
+
+    MEMORY_BASIC_INFORMATION mem;
+    if (!VirtualQuery(hRtechLib, &mem, sizeof(mem)))
+    {
+        throw std::runtime_error(fmt::format("VirtualQuery returned NULL (Win32 Error = 0x{:x})", GetLastError()));
+    }
+
+    char* base = (char*)mem.AllocationBase;
+    if (base == nullptr)
+    {
+        throw std::runtime_error("mem.AllocationBase was NULL");
+    }
+
+    rtech::AlignedHashFunc = reinterpret_cast<decltype(rtech::AlignedHashFunc)>(base + 0x3800);
+    rtech::UnalignedHashFunc = reinterpret_cast<decltype(rtech::UnalignedHashFunc)>(base + 0x3810);
+
+    // TODO: FreeLibrary at end of program
+}
+
+// TODO: Implement this myself
+uint64_t HashData(const char* data)
+{
+    if ((reinterpret_cast<uint64_t>(data) & 3) != 0)
+    {
+        return UnalignedHashFunc(data);
+    }
+    else
+    {
+        return AlignedHashFunc(data);
+    }
+}
+}
+
 class IFileReader
 {
 public:
@@ -89,8 +139,7 @@ static_assert(sizeof(SectionDescriptor) == 12, "SectionDescriptor must be 12 byt
 
 struct AssetDefinition
 {
-    uint32_t Unknown1;
-    uint32_t Unknown2;
+    uint64_t ID;
     uint32_t Unknown3;
     uint32_t Unknown4;
     SectionReference MetadataRef;
@@ -108,6 +157,70 @@ struct AssetDefinition
 };
 
 static_assert(sizeof(AssetDefinition) == 72, "AssetDefinition must be 72 bytes");
+
+struct BaseAssetMetadata
+{
+    uint64_t Unknown;
+    char* Name;
+};
+
+struct MaterialGlue
+{
+    char Unknown[24];
+    char* Name;
+};
+
+struct ShdrMetadata
+{
+    char* Name;
+};
+
+void ReplaceAll(std::string& source, const std::string& from, const std::string& to)
+{
+    std::string newString;
+    newString.reserve(source.length());  // avoids a few memory allocations
+
+    std::string::size_type lastPos = 0;
+    std::string::size_type findPos;
+
+    while (std::string::npos != (findPos = source.find(from, lastPos)))
+    {
+        newString.append(source, lastPos, findPos - lastPos);
+        newString += to;
+        lastPos = findPos + from.length();
+    }
+
+    // Care for the rest after last occurrence
+    newString += source.substr(lastPos);
+
+    source.swap(newString);
+}
+
+const char* DATATABLE_TYPES[] = {
+    "bool",
+    "int",
+    "float",
+    "vector",
+    "string",
+    "asset",
+    "asset_noprecache"
+};
+
+struct DatatableColumn
+{
+    char* Name;
+    int32_t Type;
+    int32_t Offset;
+};
+
+struct DatatableMetadata
+{
+    int32_t ColumnCount;
+    int32_t RowCount;
+    DatatableColumn* Columns;
+    char* RowData;
+    uint32_t RowSize;
+};
 
 #pragma pack(pop)
 
@@ -287,7 +400,7 @@ public:
         for (uint32_t i = 0; i < m_outerHeader.NumAssets; i++)
         {
             char* assetType = reinterpret_cast<char*>(&m_assetDefinitions[i].Type);
-            spdlog::debug("{}: {:.4s}", i, assetType);
+            spdlog::trace("{}: {:.4s}", i, assetType);
         }
 
         // Read extra header
@@ -361,6 +474,130 @@ public:
         }
     }
 
+    void PrintAssets()
+    {
+        for (uint32_t i = 0; i < m_outerHeader.NumAssets; i++)
+        {
+            AssetDefinition& def = m_assetDefinitions[i];
+            if (def.Type == 0x72747874 || def.Type == 0x73646873) // txtr, shds
+            {
+                BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
+                spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name);
+            }
+            else if (def.Type == 0x6C74616D) // matl
+            {
+                MaterialGlue* metadata = reinterpret_cast<MaterialGlue*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
+                spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name);
+            }
+            else if (def.Type == 0x72646873) // shdr
+            {
+                ShdrMetadata* metadata = reinterpret_cast<ShdrMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
+                spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name);
+            }
+            else
+            {
+                BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
+                spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Metadata: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, (void*)metadata);
+            }
+        }
+    }
+
+    void PrintDatatables()
+    {
+        for (uint32_t i = 0; i < m_outerHeader.NumAssets; i++)
+        {
+            AssetDefinition& def = m_assetDefinitions[i];
+            if (def.Type != 0x6C627464)
+            {
+                continue;
+            }
+
+            DatatableMetadata* metadata = reinterpret_cast<DatatableMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
+            spdlog::debug("{}: ID: 0x{:x}, Metadata: {}, Rows: {}, Columns: {}, Row Size: 0x{:x}", i, def.ID, (void*)metadata, metadata->RowCount, metadata->ColumnCount, metadata->RowSize);
+            for (uint32_t j = 0; j < metadata->ColumnCount; j++)
+            {
+                spdlog::debug("    Column {}: {}, Type: {}, Offset: 0x{:x}", j, metadata->Columns[j].Name, DATATABLE_TYPES[metadata->Columns[j].Type], metadata->Columns[j].Offset);
+            }
+
+            DumpDatatable(metadata, fmt::format("E:\\temp\\dumped_paks\\dt\\{:x}.csv", def.ID));
+        }
+    }
+
+    void DumpDatatable(DatatableMetadata* dt, const std::string& filename)
+    {
+        std::ofstream output;
+        output.open(filename);
+        for (uint32_t col = 0; col < dt->ColumnCount; col++)
+        {
+            std::string name = dt->Columns[col].Name;
+            ReplaceAll(name, "\"", "\"\"");
+            output << "\"" << name << "\"";
+            if (col != (dt->ColumnCount - 1))
+            {
+                output << ",";
+            }
+            else
+            {
+                output << std::endl;
+            }
+        }
+
+        for (uint32_t row = 0; row < dt->RowCount; row++)
+        {
+            for (uint32_t col = 0; col < dt->ColumnCount; col++)
+            {
+                std::string val;
+                DatatableColumn& dtCol = dt->Columns[col];
+                void* data = dt->RowData + (dt->RowSize * row) + dtCol.Offset;
+                if (dtCol.Type == 0)
+                {
+                    val = fmt::format("{}", *static_cast<bool*>(data));
+                }
+                else if (dtCol.Type == 1)
+                {
+                    val = fmt::format("{}", *static_cast<int*>(data));
+                }
+                else if (dtCol.Type == 2)
+                {
+                    val = fmt::format("{}", *static_cast<float*>(data));
+                }
+                else if (dtCol.Type == 3)
+                {
+                    val = fmt::format("VECTOR");
+                }
+                else if (dtCol.Type == 4)
+                {
+                    val = *static_cast<char**>(data);
+                    ReplaceAll(val, "\"", "\"\"");
+                }
+                else if (dtCol.Type == 5)
+                {
+                    val = fmt::format("ASSET");
+                }
+                else if (dtCol.Type == 6)
+                {
+                    val = *static_cast<char**>(data);
+                    ReplaceAll(val, "\"", "\"\"");
+                }
+                else
+                {
+                    val = fmt::format("UNKNOWN");
+                }
+
+                output << "\"" << val << "\"";
+
+                if (col != (dt->ColumnCount - 1))
+                {
+                    output << ",";
+                }
+                else
+                {
+                    output << std::endl;
+                }
+            }
+        }
+    }
+
     ~PakFile()
     {
         for (uint32_t i = 0; i < kNumSlots; i++)
@@ -391,6 +628,10 @@ private:
 int main()
 {
     spdlog::set_level(spdlog::level::debug);
+
+    rtech::ResolveFunctions();
+    spdlog::debug("hash = 0x{:x}", rtech::HashData("datatable/bt_player_conversations.rpak"));
+
     const char* name = "E:\\temp\\dumped_paks\\common_sp.rpak21";
     //const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
     //const char* name = "E:\\temp\\dumped_paks\\sp_training_loadscreen.rpak13";
@@ -398,4 +639,7 @@ int main()
     pak.Initialize();
     pak.LoadAllSections();
     pak.ApplyRelocations();
+    pak.PrintAssets();
+    pak.PrintDatatables();
+    
 }
