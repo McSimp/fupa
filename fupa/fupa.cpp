@@ -491,7 +491,7 @@ public:
             uint64_t offset = (slotDescOffsets[sectDesc.SlotDescIndex] + sectDesc.Alignment - 1) & ~static_cast<uint64_t>(sectDesc.Alignment - 1);
             m_sectionPointers[i] = m_slotData[m_slotDescriptors[sectDesc.SlotDescIndex].Slot & 3] + offset;
             slotDescOffsets[sectDesc.SlotDescIndex] = offset + sectDesc.Size;
-            spdlog::debug("{}: SlotDescIdx: {}, Alignment: 0x{:x}, Size: 0x{:x}, Offset: 0x{:x}", i, sectDesc.SlotDescIndex, sectDesc.Alignment, sectDesc.Size, offset);
+            spdlog::debug("{}: SlotDescIdx: {}, Alignment: 0x{:x}, Size: 0x{:x}, Offset: 0x{:x}, Data: {}", i, sectDesc.SlotDescIndex, sectDesc.Alignment, sectDesc.Size, offset, (void*)m_sectionPointers[i]);
         }
 
         // Read relocation information
@@ -538,14 +538,25 @@ public:
         }
     }
 
+    int32_t NormalizeSection(uint32_t section)
+    {
+        int32_t val = section + m_beforeStarpakSecond;
+        if (val >= m_outerHeader.NumSections)
+        {
+            val -= m_outerHeader.NumSections;
+        }
+        return val;
+    }
+
     void LoadAllSections()
     {
         // Sectors are stored sequentially after the header information, so just read them in order
         for (uint32_t i = 0; i < m_outerHeader.NumSections; i++)
         {
-            if (m_sectionDescriptors[i].Size > 0)
+            int32_t section = NormalizeSection(i);
+            if (m_sectionDescriptors[section].Size > 0)
             {
-                m_reader->ReadData(m_sectionPointers[i], m_sectionDescriptors[i].Size);
+                m_reader->ReadData(m_sectionPointers[section], m_sectionDescriptors[section].Size);
             }
         }
     }
@@ -845,7 +856,8 @@ int main()
     //const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
     //const char* name = "E:\\temp\\dumped_paks\\sp_training_loadscreen.rpak13";
     //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
-    const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
+    //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
+    const char* name = "E:\\temp\\dumped_paks\\ui_mp.rpak";
     PakFile pak("common_sp.rpak", std::make_unique<PreprocessedFileReader>(name));
     pak.Initialize();
     pak.LoadAllSections();
