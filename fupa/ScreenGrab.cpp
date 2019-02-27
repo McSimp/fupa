@@ -763,7 +763,7 @@ _Use_decl_annotations_
 HRESULT DirectX::SaveDDSTextureToFile(
     ID3D11DeviceContext* pContext,
     ID3D11Resource* pSource,
-    const char* fileName)
+    const wchar_t* fileName)
 {
     if (!fileName)
         return E_INVALIDARG;
@@ -775,11 +775,11 @@ HRESULT DirectX::SaveDDSTextureToFile(
         return hr;
 
     // Create file
-//#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8)
-//    ScopedHandle hFile(safe_handle(CreateFile2(fileName, GENERIC_WRITE | DELETE, 0, CREATE_ALWAYS, nullptr)));
-//#else
-    ScopedHandle hFile(safe_handle(CreateFileA(fileName, GENERIC_WRITE | DELETE, 0, nullptr, CREATE_ALWAYS, 0, nullptr)));
-//#endif
+#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8)
+    ScopedHandle hFile(safe_handle(CreateFile2(fileName, GENERIC_WRITE | DELETE, 0, CREATE_ALWAYS, nullptr)));
+#else
+    ScopedHandle hFile(safe_handle(CreateFileW(fileName, GENERIC_WRITE | DELETE, 0, nullptr, CREATE_ALWAYS, 0, nullptr)));
+#endif
     if (!hFile)
         return HRESULT_FROM_WIN32(GetLastError());
 

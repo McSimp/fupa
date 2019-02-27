@@ -7,6 +7,14 @@ using Microsoft::WRL::ComPtr;
 ComPtr<ID3D11Device> dev;
 ComPtr<ID3D11DeviceContext> devCon;
 
+// Taken from https://stackoverflow.com/a/18374698
+std::wstring Widen(const std::string& input)
+{
+    using convert_typeX = std::codecvt_utf8<wchar_t>;
+    std::wstring_convert<convert_typeX, wchar_t> converterX;
+    return converterX.from_bytes(input);
+}
+
 class IFileReader
 {
 public:
@@ -613,7 +621,7 @@ public:
             subResources[mip].SysMemPitch = bytesPerBlock * ((width + blockSize - 1) / blockSize);
             subResources[mip].SysMemSlicePitch = bytesPerBlock * ((width + blockSize - 1) / blockSize) * ((height + blockSize - 1) / blockSize);
 
-            nextTextureData += (subResources[mip].SysMemSlicePitch + MIP_ALIGNMENT - 1) & ~MIP_ALIGNMENT;
+            nextTextureData += (subResources[mip].SysMemSlicePitch + MIP_ALIGNMENT - 1) & ~(MIP_ALIGNMENT - 1);
         }
 
         desc.Width = std::max(1, metadata->Width >> metadata->SkippedMips);
@@ -631,15 +639,24 @@ public:
         ID3D11Texture2D* tex = nullptr;
         HRESULT hr = dev->CreateTexture2D(&desc, &subResources[metadata->SkippedMips], &tex);
         spdlog::info("texture {}, hr = 0x{:x}", (void*)tex, hr);
-        std::string name = fmt::format("{}.dds", metadata->Name);
-        std::string realName = "textures\\" + name.substr(name.find_last_of("\\") + 1);
-        spdlog::info("out file = {}", realName);
-        hr = DirectX::SaveDDSTextureToFile(devCon.Get(), tex, realName.c_str());
+        std::string name = fmt::format("textures\\{}.dds", metadata->Name);
+        std::filesystem::path p = name;
+        p.remove_filename();
+        std::filesystem::create_directories(p);
+        spdlog::info("out file = {}", name);
+        hr = DirectX::SaveDDSTextureToFile(devCon.Get(), tex, Widen(name).c_str());
+        if (FAILED(hr))
+        {
+            throw std::runtime_error("Failed to save texture");
+        }
+        //hr = DirectX::SaveWICTextureToFile(devCon.Get(), tex,
+        //    GUID_ContainerFormatPng, Widen(realName).c_str());
         spdlog::info("save hr = 0x{:x}", hr);
     }
 
     void PrintAssets()
     {
+        uint32_t numTexts = 0;
         for (uint32_t i = 0; i < m_outerHeader.NumAssets; i++)
         {
             AssetDefinition& def = m_assetDefinitions[i];
@@ -649,6 +666,7 @@ public:
                 char* textureData = reinterpret_cast<char*>(m_sectionPointers[def.DataRef.Section] + def.DataRef.Offset);
                 spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}, Data: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name, (void*)textureData);
                 SaveTexture(metadata, textureData);
+                numTexts++;
             }
             /*else if (def.Type == 0x73646873) // shds
             {
@@ -671,6 +689,7 @@ public:
                 spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Metadata: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, (void*)metadata);
             }*/
         }
+        spdlog::info("Num textures: {}", numTexts);
     }
 
     void PrintDatatables()
@@ -825,7 +844,8 @@ int main()
     //const char* name = "E:\\temp\\dumped_paks\\common_sp.rpak21";
     //const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
     //const char* name = "E:\\temp\\dumped_paks\\sp_training_loadscreen.rpak13";
-    const char* name = "E:\\temp\\dumped_paks\\ui_mp.rpak";
+    //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
+    const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
     PakFile pak("common_sp.rpak", std::make_unique<PreprocessedFileReader>(name));
     pak.Initialize();
     pak.LoadAllSections();

@@ -27,7 +27,7 @@
 namespace DirectX {
 HRESULT SaveDDSTextureToFile(_In_ ID3D11DeviceContext* pContext,
     _In_ ID3D11Resource* pSource,
-    _In_z_ const char* fileName);
+    _In_z_ const wchar_t* fileName);
 
 HRESULT SaveWICTextureToFile(_In_ ID3D11DeviceContext* pContext,
     _In_ ID3D11Resource* pSource,
