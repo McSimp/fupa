@@ -37,7 +37,7 @@ public:
     {
         m_file.seekg(skipBytes, std::ios::cur);
         m_file.read(buffer, bytesToRead);
-        spdlog::trace("Offset after reading 0x{:x} bytes (skipping 0x{:x}): 0x{:x}", bytesToRead, skipBytes, m_file.tellg());
+        spdlog::debug("Offset after reading 0x{:x} bytes (skipping 0x{:x}): 0x{:x}", bytesToRead, skipBytes, m_file.tellg());
         if (m_file.fail())
         {
             throw std::runtime_error("File read failed");
@@ -60,13 +60,15 @@ struct OuterHeader
     uint32_t Signature;
     uint16_t Version;
     uint16_t Flags;
-    char Unknown1[32];
-    uint64_t DecompressedSize;
+    char Unknown1[16];
+    uint64_t CompressedSize;
     uint64_t Unknown2;
+    uint64_t DecompressedSize;
+    uint64_t Unknown3;
     uint16_t StarpakPathBlockSize;
     uint16_t NumSlotDescriptors;
     uint16_t NumSections;
-    uint16_t Header62;
+    uint16_t NumRPakLinks;
     uint32_t NumRelocations;
     uint32_t NumAssets;
     uint32_t Header72;
@@ -77,12 +79,26 @@ struct OuterHeader
 
 static_assert(sizeof(OuterHeader) == 0x58, "Outer header must be 0x58 bytes");
 
-struct Header62Elem
+/*
+struct OuterHeader
 {
-    unsigned char Unknown[18];
+    char Unknown1[24];
+    uint64_t CompressedSize;
+    char Unknown2[16];
+    uint64_t DecompressedSize;
+    char Unknown3[72];
 };
 
-static_assert(sizeof(Header62Elem) == 18, "Header62Elem must be 18 bytes");
+static_assert(sizeof(OuterHeader) == 0x80, "Outer header must be 0x80 bytes");
+*/
+
+struct LinkedRPakSize
+{
+    uint64_t SizeOnDisk;
+    uint64_t DecompressedSize;
+};
+
+static_assert(sizeof(LinkedRPakSize) == 16, "LinkedRPakSize must be 16 bytes");
 
 struct SlotDescriptor
 {
@@ -317,6 +333,14 @@ struct DatatableMetadata
     uint32_t RowSize;
 };
 
+struct PatchMetadata
+{
+    uint32_t Unknown1;
+    uint32_t NumFiles;
+    char** PakNames;
+    uint8_t* PakNumbers;
+};
+
 #pragma pack(pop)
 
 void ReplaceAll(std::string& source, const std::string& from, const std::string& to)
@@ -341,7 +365,6 @@ void ReplaceAll(std::string& source, const std::string& from, const std::string&
 }
 
 const uint32_t kNumSlots = 4;
-
 class PakFile
 {
 public:
@@ -376,7 +399,7 @@ public:
         spdlog::debug("StarpakPathBlockSize: 0x{:x}", m_outerHeader.StarpakPathBlockSize);
         spdlog::debug("NumSlotDescriptors: {}", m_outerHeader.NumSlotDescriptors);
         spdlog::debug("NumSections: {}", m_outerHeader.NumSections);
-        spdlog::debug("Header62: {}", m_outerHeader.Header62);
+        spdlog::debug("NumRPakLinks: {}", m_outerHeader.NumRPakLinks);
         spdlog::debug("NumRelocations: {}", m_outerHeader.NumRelocations);
         spdlog::debug("NumAssets: {}", m_outerHeader.NumAssets);
         spdlog::debug("Header72: {}", m_outerHeader.Header72);
@@ -384,50 +407,57 @@ public:
         spdlog::debug("Header80: {}", m_outerHeader.Header80);
         spdlog::debug("Header84: {}", m_outerHeader.Header84);
 
-        // Read the data before starpak paths if applicable
-        if (m_outerHeader.Header62 != 0)
+        // Read data on links to other RPaks
+        if (m_outerHeader.NumRPakLinks != 0)
         {
             m_reader->ReadData(reinterpret_cast<char*>(&m_unknownBlockSize), sizeof(m_unknownBlockSize));
             m_reader->ReadData(reinterpret_cast<char*>(&m_beforeStarpakSecond), sizeof(m_beforeStarpakSecond));
 
-            m_header62Elems = std::make_unique<Header62Elem[]>(m_outerHeader.Header62);
-            m_reader->ReadData(reinterpret_cast<char*>(m_header62Elems.get()), sizeof(Header62Elem) * m_outerHeader.Header62);
+            m_linkedRPakSizes = std::make_unique<LinkedRPakSize[]>(m_outerHeader.NumRPakLinks);
+            m_reader->ReadData(reinterpret_cast<char*>(m_linkedRPakSizes.get()), sizeof(LinkedRPakSize) * m_outerHeader.NumRPakLinks);
 
-            spdlog::debug("====== Pre Starpak Paths ======");
+            m_linkedRPakNumbers = std::make_unique<uint16_t[]>(m_outerHeader.NumRPakLinks);
+            m_reader->ReadData(reinterpret_cast<char*>(m_linkedRPakNumbers.get()), sizeof(uint16_t) * m_outerHeader.NumRPakLinks);
+
+            spdlog::debug("====== Unknown ======");
             spdlog::debug("Unknown Block Size: 0x{:x}", m_unknownBlockSize);
             spdlog::debug("Second: 0x{:x}", m_beforeStarpakSecond);
+
+            spdlog::debug("====== RPak Links ======");
+            for (uint16_t i = 0; i < m_outerHeader.NumRPakLinks; i++)
+            {
+                spdlog::debug("{}: Size: 0x{:x}, Decompressed Size: 0x{:x}, Number: {}", i, m_linkedRPakSizes[i].SizeOnDisk, m_linkedRPakSizes[i].DecompressedSize, m_linkedRPakNumbers[i]);
+            }
         }
 
         // Read starpak paths
-        if (m_outerHeader.StarpakPathBlockSize == 0)
+        if (m_outerHeader.StarpakPathBlockSize != 0)
         {
-            throw std::runtime_error("StarpakPathBlockSize was 0");
-        }
+            spdlog::debug("====== Starpak Paths ======");
+            spdlog::debug("Size: 0x{:x}", m_outerHeader.StarpakPathBlockSize);
 
-        spdlog::debug("====== Starpak Paths ======");
-        spdlog::debug("Size: 0x{:x}", m_outerHeader.StarpakPathBlockSize);
+            std::unique_ptr<char[]> starpakBlock = std::make_unique<char[]>(m_outerHeader.StarpakPathBlockSize);
+            m_reader->ReadData(starpakBlock.get(), m_outerHeader.StarpakPathBlockSize);
 
-        std::unique_ptr<char[]> starpakBlock = std::make_unique<char[]>(m_outerHeader.StarpakPathBlockSize);
-        m_reader->ReadData(starpakBlock.get(), m_outerHeader.StarpakPathBlockSize);
-
-        size_t offset = 0;
-        while (offset < m_outerHeader.StarpakPathBlockSize)
-        {
-            const char* path = starpakBlock.get() + offset;
-            size_t pathLen = strlen(path);
-            if (pathLen > 0)
+            size_t offset = 0;
+            while (offset < m_outerHeader.StarpakPathBlockSize)
             {
-                m_starpakPaths.emplace_back(path, pathLen);
-                spdlog::debug("{}", m_starpakPaths.back());
-                if (m_starpakPaths.back().find("_hotswap.starpak") != std::string::npos)
+                const char* path = starpakBlock.get() + offset;
+                size_t pathLen = strlen(path);
+                if (pathLen > 0)
                 {
-                    throw std::runtime_error("Unexpected hotswap starpak present in file");
+                    m_starpakPaths.emplace_back(path, pathLen);
+                    spdlog::debug("{}", m_starpakPaths.back());
+                    if (m_starpakPaths.back().find("_hotswap.starpak") != std::string::npos)
+                    {
+                        throw std::runtime_error("Unexpected hotswap starpak present in file");
+                    }
+                    offset += pathLen + 1;
                 }
-                offset += pathLen + 1;
-            }
-            else
-            {
-                break;
+                else
+                {
+                    break;
+                }
             }
         }
 
@@ -516,7 +546,7 @@ public:
         for (uint32_t i = 0; i < m_outerHeader.NumAssets; i++)
         {
             char* assetType = reinterpret_cast<char*>(&m_assetDefinitions[i].Type);
-            spdlog::trace("{}: {:.4s}", i, assetType);
+            spdlog::debug("{}: {:.4s}", i, assetType);
         }
 
         // Read extra header
@@ -528,7 +558,7 @@ public:
         m_reader->ReadData(reinterpret_cast<char*>(m_extraHeader.get()), extraHeaderSize);
 
         // Read unknown block
-        if (m_outerHeader.Header62 != 0)
+        if (m_outerHeader.NumRPakLinks != 0)
         {
             spdlog::debug("====== Unknown Block ======");
             spdlog::debug("Size: 0x{:x}", m_unknownBlockSize);
@@ -660,9 +690,15 @@ public:
         {
             throw std::runtime_error("Failed to save texture");
         }
-        //hr = DirectX::SaveWICTextureToFile(devCon.Get(), tex,
-        //    GUID_ContainerFormatPng, Widen(realName).c_str());
         spdlog::info("save hr = 0x{:x}", hr);
+    }
+
+    void PrintPatch(PatchMetadata* metadata)
+    {
+        for (uint32_t i = 0; i < metadata->NumFiles; i++)
+        {
+            spdlog::debug("{}: Name: {}, Num: {}", i, metadata->PakNames[i], metadata->PakNumbers[i]);
+        }
     }
 
     void PrintAssets()
@@ -679,7 +715,7 @@ public:
                 SaveTexture(metadata, textureData);
                 numTexts++;
             }
-            /*else if (def.Type == 0x73646873) // shds
+            else if (def.Type == 0x73646873) // shds
             {
                 BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
                 spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name);
@@ -694,11 +730,17 @@ public:
                 ShdrMetadata* metadata = reinterpret_cast<ShdrMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
                 spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name);
             }
+            else if (def.Type == 0x68637450) // ptch
+            {
+                PatchMetadata* metadata = reinterpret_cast<PatchMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
+                spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Num Paks: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->NumFiles);
+                PrintPatch(metadata);
+            }
             else
             {
                 BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
                 spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Metadata: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, (void*)metadata);
-            }*/
+            }
         }
         spdlog::info("Num textures: {}", numTexts);
     }
@@ -814,7 +856,8 @@ private:
     OuterHeader m_outerHeader;
     uint32_t m_unknownBlockSize;
     uint32_t m_beforeStarpakSecond;
-    std::unique_ptr<Header62Elem[]> m_header62Elems;
+    std::unique_ptr<LinkedRPakSize[]> m_linkedRPakSizes;
+    std::unique_ptr<uint16_t[]> m_linkedRPakNumbers;
     std::vector<std::string> m_starpakPaths;
     std::unique_ptr<SlotDescriptor[]> m_slotDescriptors;
     std::unique_ptr<SectionDescriptor[]> m_sectionDescriptors;
@@ -826,11 +869,176 @@ private:
     std::unique_ptr<char[]> m_unknownBlock;
 };
 
+//const size_t COMPRESSED_BUFFER_SIZE = 0x400000;
+//const size_t DECOMPRESSED_BUFFER_SIZE = 0x1000000;
+const size_t COMPRESSED_BUFFER_SIZE = 0x1000000;
+const size_t DECOMPRESSED_BUFFER_SIZE = 0x400000;
+const size_t CHUNK_SIZE = 512 * 1024;
+
+void DoDecompress(std::string name)
+{
+    // DECOMPRESSION STUFF
+    char* allData = (char*)_aligned_malloc(COMPRESSED_BUFFER_SIZE + DECOMPRESSED_BUFFER_SIZE, 0x1000);
+    memset(allData, 0, COMPRESSED_BUFFER_SIZE + DECOMPRESSED_BUFFER_SIZE);
+    char* compressedData = allData;
+    char* decompressedData = allData + COMPRESSED_BUFFER_SIZE;
+
+    std::ifstream input;
+    input.open(fmt::format("C:\\Games\\Origin\\Titanfall2\\r2\\paks\\Win64\\{}", name), std::ios::in | std::ios::binary);
+    //input.open("E:\\Games\\Origin\\Apex\\paks\\Win64\\common_mp(02).rpak", std::ios::in | std::ios::binary);
+
+    std::ofstream output;
+    output.open(fmt::format("E:\\temp\\dumped_paks\\decompressed\\{}", name), std::ios::out | std::ios::binary);
+    //output.open("E:\\temp\\dumped_paks\\decompressed\\apex\\common_mp(02).rpak", std::ios::out | std::ios::binary);
+
+    OuterHeader header;
+    input.read(reinterpret_cast<char*>(&header), sizeof(OuterHeader));
+    input.seekg(0, std::ios::beg);
+
+    // Setup state
+    uint64_t decompressionState[17];
+    size_t dataRead = 0;
+    size_t totalDecompressed = sizeof(OuterHeader);
+    size_t dataToRead = std::min(COMPRESSED_BUFFER_SIZE, header.CompressedSize - dataRead);
+    input.read(compressedData, dataToRead);
+    dataRead += dataToRead;
+    uint64_t expectedDecompressedSize = rtech::SetupDecompressState(decompressionState, compressedData, 0xFFFFFF, header.CompressedSize, 0, sizeof(OuterHeader));
+    if (expectedDecompressedSize != header.DecompressedSize)
+    {
+        spdlog::error("Compressed size in header (0x{:x}) does not match compressed size from data (0x{:x})", header.DecompressedSize, expectedDecompressedSize);
+        return;
+    }
+    decompressionState[1] = (uint64_t)decompressedData;
+    decompressionState[3] = DECOMPRESSED_BUFFER_SIZE - 1;
+    memcpy(decompressedData, reinterpret_cast<char*>(&header), sizeof(OuterHeader));
+
+    uint64_t bufIndex = 0;
+    while (totalDecompressed != header.DecompressedSize)
+    {
+        // Decompress data
+        /*
+        {
+            std::ofstream out1(fmt::format("E:\\temp\\dumped_paks\\buffers_mine\\{}.dat", bufIndex++), std::ios::out | std::ios::binary);
+            out1.write((const char*)decompressionState[0], 0x1400000);
+        }
+        */
+
+        spdlog::info("BEFORE context={}, unk1={:x}, unk2={:x}, inputBuf={:x}, a1[1]={:x}, a1[2]={:x}, a1[3]={:x}, a1[5]={:x}, a1[6]={:x}, a1[7]={:x}, a1[9]={:x}, a1[10]={:x}, a1[11]={:x}, a1[12]={:x}, a1[14]={:x}, a1[15]={:x}, a1[16]={:x}, FirstDword={:x}, SecondDword={:x}, ThirdDword={:x}",
+            (void*)decompressionState,
+            dataRead, totalDecompressed + 0x400000,
+            decompressionState[0],
+            decompressionState[1],
+            decompressionState[2],
+            decompressionState[3],
+            decompressionState[5],
+            decompressionState[6],
+            decompressionState[7],
+            decompressionState[9],
+            decompressionState[10],
+            decompressionState[11],
+            decompressionState[12],
+            decompressionState[14],
+            decompressionState[15],
+            decompressionState[16],
+            *rtech::FirstDword,
+            *rtech::SecondDword,
+            *rtech::ThirdDword
+        );
+        uint64_t totalDecompressedBefore = decompressionState[10] == sizeof(OuterHeader) ? 0 : decompressionState[10];
+        //uint64_t inputProcessedBefore = decompressionState[9] == (sizeof(OuterHeader) + 0x10) ? 0 : decompressionState[9];
+        uint64_t inputChunksProcessedBefore = decompressionState[9] / CHUNK_SIZE;
+        rtech::DoDecompress(decompressionState, dataRead, totalDecompressed + 0x400000);
+        uint64_t totalDecompressedAfter = decompressionState[10];
+        uint64_t inputChunksProcessedAfter = decompressionState[9] / CHUNK_SIZE;
+        spdlog::info("AFTER  context={}, unk1={:x}, unk2={:x}, inputBuf={:x}, a1[1]={:x}, a1[2]={:x}, a1[3]={:x}, a1[5]={:x}, a1[6]={:x}, a1[7]={:x}, a1[9]={:x}, a1[10]={:x}, a1[11]={:x}, a1[12]={:x}, a1[14]={:x}, a1[15]={:x}, a1[16]={:x}, FirstDword={:x}, SecondDword={:x}, ThirdDword={:x}",
+            (void*)decompressionState,
+            dataRead, totalDecompressed + 0x400000,
+            decompressionState[0],
+            decompressionState[1],
+            decompressionState[2],
+            decompressionState[3],
+            decompressionState[5],
+            decompressionState[6],
+            decompressionState[7],
+            decompressionState[9],
+            decompressionState[10],
+            decompressionState[11],
+            decompressionState[12],
+            decompressionState[14],
+            decompressionState[15],
+            decompressionState[16],
+            *rtech::FirstDword,
+            *rtech::SecondDword,
+            *rtech::ThirdDword
+        );
+
+        /*
+        {
+            std::ofstream out1(fmt::format("E:\\temp\\dumped_paks\\buffers_mine\\{}.dat", bufIndex++), std::ios::out | std::ios::binary);
+            out1.write((const char*)decompressionState[0], 0x1400000);
+        }
+        */
+
+        uint64_t chunksProcessed = inputChunksProcessedAfter - inputChunksProcessedBefore;
+        spdlog::info("Input chunks processed = 0x{:x}", chunksProcessed);
+        for (uint64_t i = 0; i < chunksProcessed; i++)
+        {
+            dataToRead = std::min(CHUNK_SIZE, header.CompressedSize - dataRead);
+            input.read(compressedData + (dataRead % COMPRESSED_BUFFER_SIZE), dataToRead);
+            dataRead += dataToRead;
+        }
+
+        uint64_t decompressedThatRun = totalDecompressedAfter - totalDecompressedBefore;
+        if (decompressedThatRun != DECOMPRESSED_BUFFER_SIZE)
+        {
+            spdlog::warn("Decompressed that run != buffer size (0{:x})", decompressedThatRun);
+        }
+        totalDecompressed = decompressionState[10];
+
+        // Write to disk
+        output.write(decompressedData, decompressedThatRun);
+    }
+
+    output.close();
+}
+
 int main()
 {
     spdlog::set_level(spdlog::level::debug);
+    spdlog::flush_on(spdlog::level::trace);
+    auto file_logger = spdlog::basic_logger_mt("basic_logger", "fupa.log");
+    //spdlog::set_default_logger(file_logger);
 
     rtech::Initialize("C:\\Games\\Origin\\Titanfall2\\bin\\x64_retail");
+
+    /*DoDecompress("sp_training.rpak");
+    DoDecompress("sp_training(01).rpak");
+    DoDecompress("sp_training(03).rpak");
+    DoDecompress("sp_training(05).rpak");
+    DoDecompress("sp_training(07).rpak");
+    DoDecompress("sp_training(08).rpak");
+    DoDecompress("sp_training(09).rpak");
+    DoDecompress("sp_training(10).rpak");*/
+
+    //return 0;
+
+    
+    /*uint64_t decompSizeFromFile = rtech::SetupDecompressState(decompressionState, data, 0xFFFFFF, 1895604, 0, sizeof(OuterHeader));
+    
+    spdlog::info(fmt::format("672 before: {}", *(uint64_t*)(decompressionState + 160)));
+
+    rtech::DoDoDecompress(decompressionState, 1895604, 128 + 0x400000);
+
+    spdlog::info(fmt::format("672 after: {}", *(uint64_t*)(decompressionState + 160)));
+
+    FILE* fa = fopen("mp_lobby.dat", "wb");
+    fwrite(decompData, 1, decompSize, fa);
+    fclose(fa);*/
+
+    //std::ifstream f2;
+    //f2.open("E:\\temp\\dumped_paks\\sp_training_loadscreen.rpak13", std::ios::in | std::ios::binary);
+    //f2.read(data, decompSize);
+    //int comp = memcmp(data + 88, decompData + 88, decompSize - 88);
 
     HRESULT hr = D3D11CreateDevice(
         nullptr,
@@ -857,7 +1065,7 @@ int main()
     //const char* name = "E:\\temp\\dumped_paks\\sp_training_loadscreen.rpak13";
     //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
     //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
-    const char* name = "E:\\temp\\dumped_paks\\ui_mp.rpak";
+    const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
     PakFile pak("common_sp.rpak", std::make_unique<PreprocessedFileReader>(name));
     pak.Initialize();
     pak.LoadAllSections();

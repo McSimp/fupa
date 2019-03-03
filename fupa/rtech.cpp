@@ -3,6 +3,14 @@
 namespace rtech {
 uint64_t(*AlignedHashFunc)(const char* data);
 uint64_t(*UnalignedHashFunc)(const char* data);
+uint64_t(*SetupDecompressState)(void* pState, char* compressedData, int64_t alwaysFFFFFF, int64_t totalFileSize, int64_t startVirtualOffset, int64_t headerSize);
+void(*DoDecompress)(void* pState, uint64_t totalBytesReadAndAcked, uint64_t someVal);
+int64_t(*ConstructPatchArray)(char* inputArray, int32_t a2, int64_t a3, int64_t a4, int64_t a5);
+
+
+uint32_t* FirstDword;
+uint32_t* SecondDword;
+uint32_t* ThirdDword;
 
 void Initialize(const std::string& dllPath)
 {
@@ -30,8 +38,15 @@ void Initialize(const std::string& dllPath)
         throw std::runtime_error("mem.AllocationBase was NULL");
     }
 
-    rtech::AlignedHashFunc = reinterpret_cast<decltype(rtech::AlignedHashFunc)>(base + 0x3800);
-    rtech::UnalignedHashFunc = reinterpret_cast<decltype(rtech::UnalignedHashFunc)>(base + 0x3810);
+    AlignedHashFunc = reinterpret_cast<decltype(AlignedHashFunc)>(base + 0x3800);
+    UnalignedHashFunc = reinterpret_cast<decltype(UnalignedHashFunc)>(base + 0x3810);
+    SetupDecompressState = reinterpret_cast<decltype(SetupDecompressState)>(base + 0x4b80);
+    DoDecompress = reinterpret_cast<decltype(DoDecompress)>(base + 0x4ea0);
+    ConstructPatchArray = reinterpret_cast<decltype(ConstructPatchArray)>(base + 0x56c0);
+
+    FirstDword = reinterpret_cast<uint32_t*>(base + 0x4324c);
+    SecondDword = reinterpret_cast<uint32_t*>(base + 0x43250);
+    ThirdDword = reinterpret_cast<uint32_t*>(base + 0x43254);
 
     // TODO: FreeLibrary at end of program
 }
@@ -48,4 +63,6 @@ uint64_t HashData(const char* data)
         return AlignedHashFunc(data);
     }
 }
+
+
 }
