@@ -7,46 +7,6 @@ using Microsoft::WRL::ComPtr;
 ComPtr<ID3D11Device> dev;
 ComPtr<ID3D11DeviceContext> devCon;
 
-// Taken from https://stackoverflow.com/a/18374698
-std::wstring Widen(const std::string& input)
-{
-    using convert_typeX = std::codecvt_utf8<wchar_t>;
-    std::wstring_convert<convert_typeX, wchar_t> converterX;
-    return converterX.from_bytes(input);
-}
-
-class IFileReader
-{
-public:
-    virtual void ReadData(char* buffer, size_t bytesToRead, size_t skipBytes = 0) = 0;
-};
-
-class PreprocessedFileReader : public IFileReader
-{
-public:
-    PreprocessedFileReader(std::string filename) :
-        m_file(filename, std::ios::in | std::ios::binary)
-    {
-        if (!m_file.is_open())
-        {
-            throw std::runtime_error("Failed to open file");
-        }
-    }
-
-    void ReadData(char* buffer, size_t bytesToRead, size_t skipBytes) override
-    {
-        m_file.seekg(skipBytes, std::ios::cur);
-        m_file.read(buffer, bytesToRead);
-        spdlog::debug("Offset after reading 0x{:x} bytes (skipping 0x{:x}): 0x{:x}", bytesToRead, skipBytes, m_file.tellg());
-        if (m_file.fail())
-        {
-            throw std::runtime_error("File read failed");
-        }
-    }
-
-private:
-    std::ifstream m_file;
-};
 
 #pragma pack(push, 1)
 struct SectionReference
@@ -343,6 +303,144 @@ struct PatchMetadata
 
 #pragma pack(pop)
 
+// Taken from https://stackoverflow.com/a/18374698
+std::wstring Widen(const std::string& input)
+{
+    using convert_typeX = std::codecvt_utf8<wchar_t>;
+    std::wstring_convert<convert_typeX, wchar_t> converterX;
+    return converterX.from_bytes(input);
+}
+
+class IFileReader
+{
+public:
+    virtual void ReadData(char* buffer, size_t bytesToRead, size_t skipBytes = 0) = 0;
+};
+/*
+class PreprocessedFileReader : public IFileReader
+{
+public:
+    PreprocessedFileReader(std::string filename) :
+        m_file(filename, std::ios::in | std::ios::binary)
+    {
+        if (!m_file.is_open())
+        {
+            throw std::runtime_error("Failed to open file");
+        }
+    }
+
+    void ReadData(char* buffer, size_t bytesToRead, size_t skipBytes) override
+    {
+        m_file.seekg(skipBytes, std::ios::cur);
+        m_file.read(buffer, bytesToRead);
+        spdlog::debug("Offset after reading 0x{:x} bytes (skipping 0x{:x}): 0x{:x}", bytesToRead, skipBytes, m_file.tellg());
+        if (m_file.fail())
+        {
+            throw std::runtime_error("File read failed");
+        }
+    }
+
+private:
+    std::ifstream m_file;
+};
+*/
+
+class ChainedReader : public IFileReader
+{
+public:
+    ChainedReader(const std::string& filename)
+    {
+        PushFile(filename, false);
+        m_currentFile = 0;
+    }
+
+    void PushFile(const std::string& filename, bool skipHeader)
+    {
+        std::ifstream file(filename, std::ios::in | std::ios::binary);
+        if (!file.is_open())
+        {
+            throw std::runtime_error(fmt::format("Failed to open file {}", filename));
+        }
+
+        file.seekg(0, std::ios::end);
+        size_t size = file.tellg();
+        if (skipHeader)
+        {
+            file.seekg(sizeof(OuterHeader), std::ios::beg);
+            size -= sizeof(OuterHeader);
+        }
+        else
+        {
+            file.seekg(0, std::ios::beg);
+        }
+        m_files.emplace_back(std::move(file), size);
+        spdlog::debug("Pushed file {} with size 0x{:x}", filename, size);
+    }
+
+    void ReadData(char* buffer, size_t bytesToRead, size_t skipBytes = 0) override
+    {
+        size_t bytesSkipped = 0;
+        while (bytesSkipped != skipBytes)
+        {
+            FileDescriptor& f = m_files[m_currentFile];
+            if (f.BytesRemaining == 0)
+            {
+                if ((m_currentFile + 1) >= m_files.size())
+                {
+                    throw std::runtime_error("Attempted to seek beyond end of chained files");
+                }
+
+                m_currentFile++;
+            }
+            size_t skipFromCurrent = std::min(f.BytesRemaining, skipBytes - bytesSkipped);
+            f.File.seekg(skipFromCurrent, std::ios::cur);
+            f.BytesRemaining -= skipFromCurrent;
+            bytesSkipped += skipFromCurrent;
+        }
+
+        size_t bytesRead = 0;
+        while (bytesRead != bytesToRead)
+        {
+            FileDescriptor& f = m_files[m_currentFile];
+            if (f.BytesRemaining == 0)
+            {
+                if ((m_currentFile + 1) >= m_files.size())
+                {
+                    throw std::runtime_error("Attempted to read beyond end of chained files");
+                }
+
+                m_currentFile++;
+            }
+            size_t readFromCurrent = std::min(f.BytesRemaining, bytesToRead - bytesRead);
+            f.File.read(buffer + bytesRead, readFromCurrent);
+            spdlog::debug("Read 0x{:x} bytes from file {}, now at 0x{:x}", readFromCurrent, m_currentFile, f.File.tellg());
+            if (f.File.fail())
+            {
+                throw std::runtime_error("File read failed");
+            }
+            f.BytesRemaining -= readFromCurrent;
+            bytesRead += readFromCurrent;
+        }
+    }
+
+private:
+    struct FileDescriptor
+    {
+        std::ifstream File;
+        size_t BytesRemaining;
+
+        FileDescriptor(std::ifstream file, size_t bytesRemaining) :
+            File(std::move(file)),
+            BytesRemaining(bytesRemaining)
+        {
+
+        }
+    };
+
+    std::vector<FileDescriptor> m_files;
+    size_t m_currentFile;
+};
+
 void ReplaceAll(std::string& source, const std::string& from, const std::string& to)
 {
     std::string newString;
@@ -365,14 +463,122 @@ void ReplaceAll(std::string& source, const std::string& from, const std::string&
 }
 
 const uint32_t kNumSlots = 4;
+const char kPatchArray1Values[] = { 0, 1, 2, 3, 4, 5, 6 };
+const char kPatchArray2Values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
+
+std::string GetRpakPath(const std::string& baseFolder, const std::string& name, int pakNumber)
+{
+    if (pakNumber == 0)
+    {
+        return baseFolder + "/" + name + ".rpak";
+    }
+    else
+    {
+        return fmt::format("{}/{}({:02d}).rpak", baseFolder, name, pakNumber);
+    }
+}
+
 class PakFile
 {
 public:
-    PakFile(std::string name, std::unique_ptr<IFileReader> reader) :
-        m_reader(std::move(reader)),
-        m_name(std::move(name))
+    PakFile(std::string baseFolder, std::string name, int pakNumber) :
+        m_reader(std::make_unique<ChainedReader>(GetRpakPath(baseFolder, name, pakNumber))),
+        m_name(std::move(name)),
+        m_baseFolder(std::move(baseFolder))
+    {
+        
+    }
+
+    // PATCH FUNCTIONS
+
+    size_t PatchFuncRead(char* buffer, size_t bytesToRead)
+    {
+        size_t read = std::min(bytesToRead, m_bytesUntilNextPatch);
+        spdlog::debug("Reading 0x{:x} bytes (wanted to read 0x{:x}) - m_bytesUntilNextPatch = 0x{:x}", read, bytesToRead, m_bytesUntilNextPatch);
+        m_reader->ReadData(buffer, read);
+        m_bytesUntilNextPatch -= read;
+        return read;
+    }
+
+    size_t PatchFuncSkip(char* buffer, size_t bytesToRead)
+    {
+        // Advance the internal pointer by as much as possible, but don't read anything
+        size_t skip = m_bytesUntilNextPatch;
+        spdlog::debug("Skipping 0x{:x} bytes - m_bytesUntilNextPatch = 0x{:x}", skip, m_bytesUntilNextPatch);
+        m_reader->ReadData(buffer, 0, skip);
+        m_bytesUntilNextPatch -= skip;
+        return 0;
+    }
+
+    size_t PatchFuncReplace()
     {
 
+    }
+
+    size_t PatchFuncInsert()
+    {
+
+    }
+
+    // END PATCH FUNCTIONS
+
+    void UpdatePatchInstruction()
+    {
+        m_patch696 |= *m_patch680 << (64 - static_cast<uint8_t>(m_patch704));
+        m_patch680 = reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(m_patch680) + (m_patch704 >> 3));
+        m_patch704 = m_patch704 & 7;
+        
+        int64_t index = m_patch696 & 0x3F;
+        uint8_t opcode = m_patchData1[index];
+        uint8_t patchData2Val = m_patchData2[index];
+
+        m_patch696 >>= patchData2Val;
+        m_patch704 += patchData2Val;
+
+        if (opcode > 3)
+        {
+            // This probably should not happen
+            spdlog::error("This shouldn't happen");
+            DebugBreak();
+        }
+        else
+        {
+            uint8_t patchData3Val = m_patchData3[static_cast<uint8_t>(m_patch696)];
+            uint8_t patchData4Val = m_patchData4[static_cast<uint8_t>(m_patch696)];
+            uint64_t new696Val = m_patch696 >> patchData4Val;
+            m_patch696 = new696Val >> patchData3Val;
+            m_bytesUntilNextPatch = (1ULL << patchData3Val) + (new696Val & ((1ULL << patchData3Val) - 1));
+            m_patch704 += patchData3Val + patchData4Val;
+            if (opcode == 0)
+            {
+                m_patchInstruction = &PakFile::PatchFuncRead;
+            }
+            else if (opcode == 1)
+            {
+                m_patchInstruction = &PakFile::PatchFuncSkip;
+            }
+            else
+            {
+                throw std::runtime_error("Unsupported patch opcode");
+            }
+        }
+    }
+
+    void ReadPatchedData(char* buffer, size_t bytesToRead)
+    {
+        size_t bytesRead = 0;
+        while (bytesRead != bytesToRead)
+        {
+            if (m_bytesUntilNextPatch > 0)
+            {
+                size_t read = (*this.*m_patchInstruction)(buffer + bytesRead, bytesToRead - bytesRead);
+                bytesRead += read;
+            }
+            else
+            {
+                UpdatePatchInstruction();
+            }
+        }
     }
 
     void Initialize()
@@ -407,25 +613,29 @@ public:
         spdlog::debug("Header80: {}", m_outerHeader.Header80);
         spdlog::debug("Header84: {}", m_outerHeader.Header84);
 
+        m_bytesUntilNextPatch = m_outerHeader.DecompressedSize - 0x58 + (m_outerHeader.NumRPakLinks != 0 ? 0 : 1);
+        m_patchInstruction = &PakFile::PatchFuncRead;
+
         // Read data on links to other RPaks
         if (m_outerHeader.NumRPakLinks != 0)
         {
-            m_reader->ReadData(reinterpret_cast<char*>(&m_unknownBlockSize), sizeof(m_unknownBlockSize));
-            m_reader->ReadData(reinterpret_cast<char*>(&m_beforeStarpakSecond), sizeof(m_beforeStarpakSecond));
+            ReadPatchedData(reinterpret_cast<char*>(&m_patchDataBlockSize), sizeof(m_patchDataBlockSize));
+            ReadPatchedData(reinterpret_cast<char*>(&m_beforeStarpakSecond), sizeof(m_beforeStarpakSecond));
 
             m_linkedRPakSizes = std::make_unique<LinkedRPakSize[]>(m_outerHeader.NumRPakLinks);
-            m_reader->ReadData(reinterpret_cast<char*>(m_linkedRPakSizes.get()), sizeof(LinkedRPakSize) * m_outerHeader.NumRPakLinks);
+            ReadPatchedData(reinterpret_cast<char*>(m_linkedRPakSizes.get()), sizeof(LinkedRPakSize) * m_outerHeader.NumRPakLinks);
 
             m_linkedRPakNumbers = std::make_unique<uint16_t[]>(m_outerHeader.NumRPakLinks);
-            m_reader->ReadData(reinterpret_cast<char*>(m_linkedRPakNumbers.get()), sizeof(uint16_t) * m_outerHeader.NumRPakLinks);
+            ReadPatchedData(reinterpret_cast<char*>(m_linkedRPakNumbers.get()), sizeof(uint16_t) * m_outerHeader.NumRPakLinks);
 
-            spdlog::debug("====== Unknown ======");
-            spdlog::debug("Unknown Block Size: 0x{:x}", m_unknownBlockSize);
+            spdlog::debug("====== Patch Information ======");
+            spdlog::debug("Patch Block Size: 0x{:x}", m_patchDataBlockSize);
             spdlog::debug("Second: 0x{:x}", m_beforeStarpakSecond);
 
             spdlog::debug("====== RPak Links ======");
             for (uint16_t i = 0; i < m_outerHeader.NumRPakLinks; i++)
             {
+                m_reader->PushFile(GetRpakPath(m_baseFolder, m_name, m_linkedRPakNumbers[i]), true);
                 spdlog::debug("{}: Size: 0x{:x}, Decompressed Size: 0x{:x}, Number: {}", i, m_linkedRPakSizes[i].SizeOnDisk, m_linkedRPakSizes[i].DecompressedSize, m_linkedRPakNumbers[i]);
             }
         }
@@ -437,7 +647,7 @@ public:
             spdlog::debug("Size: 0x{:x}", m_outerHeader.StarpakPathBlockSize);
 
             std::unique_ptr<char[]> starpakBlock = std::make_unique<char[]>(m_outerHeader.StarpakPathBlockSize);
-            m_reader->ReadData(starpakBlock.get(), m_outerHeader.StarpakPathBlockSize);
+            ReadPatchedData(starpakBlock.get(), m_outerHeader.StarpakPathBlockSize);
 
             size_t offset = 0;
             while (offset < m_outerHeader.StarpakPathBlockSize)
@@ -471,7 +681,7 @@ public:
         spdlog::debug("Size: 0x{:x}", sizeof(SlotDescriptor) * m_outerHeader.NumSlotDescriptors);
         
         m_slotDescriptors = std::make_unique<SlotDescriptor[]>(m_outerHeader.NumSlotDescriptors);
-        m_reader->ReadData(reinterpret_cast<char*>(m_slotDescriptors.get()), sizeof(SlotDescriptor) * m_outerHeader.NumSlotDescriptors);
+        ReadPatchedData(reinterpret_cast<char*>(m_slotDescriptors.get()), sizeof(SlotDescriptor) * m_outerHeader.NumSlotDescriptors);
 
         // Calculate sizes, offsets, and alignments
         uint64_t slotSizes[kNumSlots] = {};
@@ -511,7 +721,7 @@ public:
         spdlog::debug("Size: 0x{:x}", sizeof(SectionDescriptor) * m_outerHeader.NumSections);
 
         m_sectionDescriptors = std::make_unique<SectionDescriptor[]>(m_outerHeader.NumSections);
-        m_reader->ReadData(reinterpret_cast<char*>(m_sectionDescriptors.get()), sizeof(SectionDescriptor) * m_outerHeader.NumSections);
+        ReadPatchedData(reinterpret_cast<char*>(m_sectionDescriptors.get()), sizeof(SectionDescriptor) * m_outerHeader.NumSections);
 
         m_sectionPointers = std::make_unique<char*[]>(m_outerHeader.NumSections);
 
@@ -521,7 +731,7 @@ public:
             uint64_t offset = (slotDescOffsets[sectDesc.SlotDescIndex] + sectDesc.Alignment - 1) & ~static_cast<uint64_t>(sectDesc.Alignment - 1);
             m_sectionPointers[i] = m_slotData[m_slotDescriptors[sectDesc.SlotDescIndex].Slot & 3] + offset;
             slotDescOffsets[sectDesc.SlotDescIndex] = offset + sectDesc.Size;
-            spdlog::debug("{}: SlotDescIdx: {}, Alignment: 0x{:x}, Size: 0x{:x}, Offset: 0x{:x}, Data: {}", i, sectDesc.SlotDescIndex, sectDesc.Alignment, sectDesc.Size, offset, (void*)m_sectionPointers[i]);
+            spdlog::debug("{}: SlotDescIdx: {}, Alignment: 0x{:x}, Size: 0x{:x}, Offset: 0x{:x}, Data: {}", i, sectDesc.SlotDescIndex, sectDesc.Alignment, sectDesc.Size, offset, static_cast<void*>(m_sectionPointers[i]));
         }
 
         // Read relocation information
@@ -529,7 +739,7 @@ public:
         spdlog::debug("Size: 0x{:x}", sizeof(SectionReference) * m_outerHeader.NumRelocations);
 
         m_relocationDescriptors = std::make_unique<SectionReference[]>(m_outerHeader.NumRelocations);
-        m_reader->ReadData(reinterpret_cast<char*>(m_relocationDescriptors.get()), sizeof(SectionReference) * m_outerHeader.NumRelocations);
+        ReadPatchedData(reinterpret_cast<char*>(m_relocationDescriptors.get()), sizeof(SectionReference) * m_outerHeader.NumRelocations);
 
         for (uint32_t i = 0; i < m_outerHeader.NumRelocations; i++)
         {
@@ -542,7 +752,7 @@ public:
         spdlog::debug("Size: 0x{:x}", sizeof(AssetDefinition) * m_outerHeader.NumAssets);
 
         m_assetDefinitions = std::make_unique<AssetDefinition[]>(m_outerHeader.NumAssets);
-        m_reader->ReadData(reinterpret_cast<char*>(m_assetDefinitions.get()), sizeof(AssetDefinition) * m_outerHeader.NumAssets);
+        ReadPatchedData(reinterpret_cast<char*>(m_assetDefinitions.get()), sizeof(AssetDefinition) * m_outerHeader.NumAssets);
         for (uint32_t i = 0; i < m_outerHeader.NumAssets; i++)
         {
             char* assetType = reinterpret_cast<char*>(&m_assetDefinitions[i].Type);
@@ -555,16 +765,27 @@ public:
         spdlog::debug("Size: 0x{:x}", extraHeaderSize);
 
         m_extraHeader = std::make_unique<char[]>(extraHeaderSize);
-        m_reader->ReadData(reinterpret_cast<char*>(m_extraHeader.get()), extraHeaderSize);
+        ReadPatchedData(reinterpret_cast<char*>(m_extraHeader.get()), extraHeaderSize);
 
-        // Read unknown block
+        // Read patch data block
         if (m_outerHeader.NumRPakLinks != 0)
         {
-            spdlog::debug("====== Unknown Block ======");
-            spdlog::debug("Size: 0x{:x}", m_unknownBlockSize);
+            spdlog::debug("====== Patch Data Block ======");
+            spdlog::debug("Size: 0x{:x}", m_patchDataBlockSize);
 
-            m_unknownBlock = std::make_unique<char[]>(m_unknownBlockSize);
-            m_reader->ReadData(reinterpret_cast<char*>(m_unknownBlock.get()), m_unknownBlockSize);
+            m_patchDataBlock = std::make_unique<uint8_t[]>(m_patchDataBlockSize);
+            ReadPatchedData(reinterpret_cast<char*>(m_patchDataBlock.get()), m_patchDataBlockSize);
+
+            // Construct patch data arrays
+            uint8_t* nextBlock = m_patchDataBlock.get() + rtech::ConstructPatchArray(m_patchDataBlock.get(), 6, kPatchArray1Values, m_patchData1, m_patchData2);
+            nextBlock += rtech::ConstructPatchArray(nextBlock, 8, kPatchArray2Values, m_patchData3, m_patchData4);
+            uint64_t val = *reinterpret_cast<uint64_t*>(nextBlock);
+
+            // Set the initial patch variables
+            m_patch704 = 24;
+            m_patch696 = val >> 24;
+            m_patch680 = reinterpret_cast<uint64_t*>(nextBlock) + 1;
+            m_currentPatchData = nextBlock + (val & 0xFFFFFF);
         }
     }
 
@@ -586,7 +807,8 @@ public:
             int32_t section = NormalizeSection(i);
             if (m_sectionDescriptors[section].Size > 0)
             {
-                m_reader->ReadData(m_sectionPointers[section], m_sectionDescriptors[section].Size);
+                spdlog::debug("Reading section {} (0x{:x} bytes)", section, m_sectionDescriptors[section].Size);
+                ReadPatchedData(m_sectionPointers[section], m_sectionDescriptors[section].Size);
             }
         }
     }
@@ -851,10 +1073,11 @@ public:
     }
 
 private:
-    std::unique_ptr<IFileReader> m_reader;
+    std::unique_ptr<ChainedReader> m_reader;
     std::string m_name;
+    std::string m_baseFolder;
     OuterHeader m_outerHeader;
-    uint32_t m_unknownBlockSize;
+    uint32_t m_patchDataBlockSize;
     uint32_t m_beforeStarpakSecond;
     std::unique_ptr<LinkedRPakSize[]> m_linkedRPakSizes;
     std::unique_ptr<uint16_t[]> m_linkedRPakNumbers;
@@ -866,7 +1089,19 @@ private:
     std::unique_ptr<SectionReference[]> m_relocationDescriptors;
     std::unique_ptr<AssetDefinition[]> m_assetDefinitions;
     std::unique_ptr<char[]> m_extraHeader;
-    std::unique_ptr<char[]> m_unknownBlock;
+
+    std::unique_ptr<uint8_t[]> m_patchDataBlock;
+    uint8_t m_patchData1[64];
+    uint8_t m_patchData2[64];
+    uint8_t m_patchData3[256];
+    uint8_t m_patchData4[256];
+
+    uint64_t* m_patch680;
+    uint64_t m_patch696;
+    uint32_t m_patch704;
+    uint64_t m_bytesUntilNextPatch;
+    uint8_t* m_currentPatchData;
+    size_t (PakFile::*m_patchInstruction)(char* buffer, size_t bytesToRead);
 };
 
 //const size_t COMPRESSED_BUFFER_SIZE = 0x400000;
@@ -1066,11 +1301,13 @@ int main()
     //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
     //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
     const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
-    PakFile pak("common_sp.rpak", std::make_unique<PreprocessedFileReader>(name));
+    //PakFile pak("E:\\temp\\dumped_paks\\decompressed", "sp_training", 11);
+    PakFile pak("E:\\temp\\dumped_paks\\decompressed", "ui_mp", 11);
     pak.Initialize();
     pak.LoadAllSections();
     pak.ApplyRelocations();
     pak.PrintAssets();
+    
     //system("pause");
     //pak.PrintDatatables();
 }

@@ -5,7 +5,7 @@ uint64_t(*AlignedHashFunc)(const char* data);
 uint64_t(*UnalignedHashFunc)(const char* data);
 uint64_t(*SetupDecompressState)(void* pState, char* compressedData, int64_t alwaysFFFFFF, int64_t totalFileSize, int64_t startVirtualOffset, int64_t headerSize);
 void(*DoDecompress)(void* pState, uint64_t totalBytesReadAndAcked, uint64_t someVal);
-int64_t(*ConstructPatchArray)(char* inputArray, int32_t a2, int64_t a3, int64_t a4, int64_t a5);
+int64_t(*ConstructPatchArray)(uint8_t* inputArray, int32_t a2, const char* a3, uint8_t* a4, uint8_t* a5);
 
 
 uint32_t* FirstDword;
