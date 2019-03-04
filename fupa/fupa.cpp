@@ -6,7 +6,7 @@ using Microsoft::WRL::ComPtr;
 
 ComPtr<ID3D11Device> dev;
 ComPtr<ID3D11DeviceContext> devCon;
-
+std::ofstream DebugFile("E:\\temp\\dumped_paks\\debug.dat", std::ios::out | std::ios::binary);
 
 #pragma pack(push, 1)
 struct SectionReference
@@ -413,6 +413,7 @@ public:
             }
             size_t readFromCurrent = std::min(f.BytesRemaining, bytesToRead - bytesRead);
             f.File.read(buffer + bytesRead, readFromCurrent);
+            DebugFile.write(buffer + bytesRead, readFromCurrent);
             spdlog::debug("Read 0x{:x} bytes from file {}, now at 0x{:x}", readFromCurrent, m_currentFile, f.File.tellg());
             if (f.File.fail())
             {
@@ -510,14 +511,29 @@ public:
         return 0;
     }
 
-    size_t PatchFuncReplace()
+    size_t PatchFuncInsert(char* buffer, size_t bytesToRead)
     {
-
+        // For an insert, the input data stream doesn't progress - only the output
+        size_t insert = std::min(bytesToRead, m_bytesUntilNextPatch);
+        spdlog::debug("Inserting 0x{:x} bytes - m_bytesUntilNextPatch = 0x{:x}", insert, m_bytesUntilNextPatch);
+        memcpy(buffer, m_currentPatchData, insert);
+        DebugFile.write((char*)m_currentPatchData, insert);
+        m_currentPatchData += insert;
+        m_bytesUntilNextPatch -= insert;
+        return insert;
     }
 
-    size_t PatchFuncInsert()
+    size_t PatchFuncReplace(char* buffer, size_t bytesToRead)
     {
-
+        // For an insert, the input data also progresses
+        size_t replace = std::min(bytesToRead, m_bytesUntilNextPatch);
+        spdlog::debug("Replacing 0x{:x} bytes - m_bytesUntilNextPatch = 0x{:x}", replace, m_bytesUntilNextPatch);
+        memcpy(buffer, m_currentPatchData, replace);
+        m_reader->ReadData(buffer, 0, replace);
+        DebugFile.write((char*)m_currentPatchData, replace);
+        m_currentPatchData += replace;
+        m_bytesUntilNextPatch -= replace;
+        return replace;
     }
 
     // END PATCH FUNCTIONS
@@ -556,6 +572,14 @@ public:
             else if (opcode == 1)
             {
                 m_patchInstruction = &PakFile::PatchFuncSkip;
+            }
+            else if (opcode == 2)
+            {
+                m_patchInstruction = &PakFile::PatchFuncInsert;
+            }
+            else if (opcode == 3)
+            {
+                m_patchInstruction = &PakFile::PatchFuncReplace;
             }
             else
             {
@@ -1302,7 +1326,7 @@ int main()
     //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
     const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
     //PakFile pak("E:\\temp\\dumped_paks\\decompressed", "sp_training", 11);
-    PakFile pak("E:\\temp\\dumped_paks\\decompressed", "ui_mp", 11);
+    PakFile pak("E:\\temp\\dumped_paks\\decompressed", "sp_training", 11);
     pak.Initialize();
     pak.LoadAllSections();
     pak.ApplyRelocations();
