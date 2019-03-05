@@ -414,6 +414,7 @@ public:
             size_t readFromCurrent = std::min(f.BytesRemaining, bytesToRead - bytesRead);
             f.File.read(buffer + bytesRead, readFromCurrent);
             DebugFile.write(buffer + bytesRead, readFromCurrent);
+            DebugFile.flush();
             spdlog::debug("Read 0x{:x} bytes from file {}, now at 0x{:x}", readFromCurrent, m_currentFile, f.File.tellg());
             if (f.File.fail())
             {
@@ -466,6 +467,7 @@ void ReplaceAll(std::string& source, const std::string& from, const std::string&
 const uint32_t kNumSlots = 4;
 const char kPatchArray1Values[] = { 0, 1, 2, 3, 4, 5, 6 };
 const char kPatchArray2Values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
+const uint64_t kSpecialPatchAmounts[] = { 3, 7, 6 };
 
 std::string GetRpakPath(const std::string& baseFolder, const std::string& name, int pakNumber)
 {
@@ -497,6 +499,7 @@ public:
         size_t read = std::min(bytesToRead, m_bytesUntilNextPatch);
         spdlog::debug("Reading 0x{:x} bytes (wanted to read 0x{:x}) - m_bytesUntilNextPatch = 0x{:x}", read, bytesToRead, m_bytesUntilNextPatch);
         m_reader->ReadData(buffer, read);
+        spdlog::debug("Output now at 0x{:x}", DebugFile.tellp());
         m_bytesUntilNextPatch -= read;
         return read;
     }
@@ -518,6 +521,8 @@ public:
         spdlog::debug("Inserting 0x{:x} bytes - m_bytesUntilNextPatch = 0x{:x}", insert, m_bytesUntilNextPatch);
         memcpy(buffer, m_currentPatchData, insert);
         DebugFile.write((char*)m_currentPatchData, insert);
+        DebugFile.flush();
+        spdlog::debug("Output now at 0x{:x}", DebugFile.tellp());
         m_currentPatchData += insert;
         m_bytesUntilNextPatch -= insert;
         return insert;
@@ -531,9 +536,57 @@ public:
         memcpy(buffer, m_currentPatchData, replace);
         m_reader->ReadData(buffer, 0, replace);
         DebugFile.write((char*)m_currentPatchData, replace);
+        DebugFile.flush();
+        spdlog::debug("Output now at 0x{:x}", DebugFile.tellp());
         m_currentPatchData += replace;
         m_bytesUntilNextPatch -= replace;
         return replace;
+    }
+
+    size_t PatchFuncReplaceOneThenRead(char* buffer, size_t bytesToRead)
+    {
+        // All these functions assume that bytesToRead > 0
+        spdlog::debug("Replacing 1 byte then reading - m_bytesUntilNextPatch = 0x{:x}", m_bytesUntilNextPatch);
+        buffer[0] = m_currentPatchData[0];
+        DebugFile.write((char*)m_currentPatchData, 1);
+        DebugFile.flush();
+        spdlog::debug("Output now at 0x{:x}", DebugFile.tellp());
+        m_reader->ReadData(buffer, 0, 1);
+        m_currentPatchData++;
+        //m_bytesUntilNextPatch--;
+        m_patchInstruction = &PakFile::PatchFuncRead;
+        return 1 + (bytesToRead > 1 ? PatchFuncRead(buffer + 1, bytesToRead - 1) : 0);
+    }
+
+    size_t PatchFuncReplaceTwoThenRead(char* buffer, size_t bytesToRead)
+    {
+        // All these functions assume that bytesToRead > 0
+        // If we can write both bytes, do that then execute the read
+        // Otherwise, if we can only write 1, do that then switch to ReplaceOneThenRead
+        spdlog::debug("Replacing 2 bytes then reading - m_bytesUntilNextPatch = 0x{:x}", m_bytesUntilNextPatch);
+        size_t replace = std::min(bytesToRead, 2ULL);
+        memcpy(buffer, m_currentPatchData, replace);
+        m_reader->ReadData(buffer, 0, replace);
+        DebugFile.write((char*)m_currentPatchData, replace);
+        DebugFile.flush();
+        spdlog::debug("Output now at 0x{:x}", DebugFile.tellp());
+        m_currentPatchData += replace;
+        //m_bytesUntilNextPatch -= replace;
+
+        if (bytesToRead >= 2)
+        {
+            m_patchInstruction = &PakFile::PatchFuncRead;
+            return 2 + (bytesToRead > 2 ? PatchFuncRead(buffer + 2, bytesToRead - 2) : 0);
+        }
+        else if (bytesToRead == 1)
+        {
+            m_patchInstruction = &PakFile::PatchFuncReplaceOneThenRead;
+            return 1;
+        }
+        else
+        {
+            throw std::runtime_error("Unexpected value for bytesToRead");
+        }
     }
 
     // END PATCH FUNCTIONS
@@ -553,9 +606,15 @@ public:
 
         if (opcode > 3)
         {
-            // This probably should not happen
-            spdlog::error("This shouldn't happen");
-            DebugBreak();
+            m_bytesUntilNextPatch = kSpecialPatchAmounts[opcode - 4];
+            if (opcode == 4 || opcode == 5)
+            {
+                m_patchInstruction = &PakFile::PatchFuncReplaceOneThenRead;
+            }
+            else if (opcode == 6)
+            {
+                m_patchInstruction = &PakFile::PatchFuncReplaceTwoThenRead;
+            }
         }
         else
         {
@@ -583,6 +642,7 @@ public:
             }
             else
             {
+                // TODO: SPecial case for opcode > 3, need to update something here
                 throw std::runtime_error("Unsupported patch opcode");
             }
         }
