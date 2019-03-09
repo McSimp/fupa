@@ -54,6 +54,9 @@
     <ClInclude Include="CompressedFileReader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="KnownAssetCache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -87,6 +90,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="CompressedFileReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="KnownAssetCache.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

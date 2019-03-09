@@ -1,5 +1,31 @@
 #include "pch.h"
 
+void AddStaticKnownAssetNames()
+{
+    KnownAssetCache::AddName("scripts/keys_controller_xone.rson");
+    KnownAssetCache::AddName("scripts/keys_controller_ps4.rson");
+    KnownAssetCache::AddName("scripts/keys_keyboard.rson");
+    KnownAssetCache::AddName("scripts/audio/banks.rson");
+    KnownAssetCache::AddName("scripts/skins.rson");
+    KnownAssetCache::AddName("scripts/audio/metadata_tags.rson");
+    KnownAssetCache::AddName("scripts/vscripts/scripts.rson");
+    KnownAssetCache::AddName("scripts/audio/environments.rson");
+    KnownAssetCache::AddName("scripts/audio/soundmeter_busses.rson");
+    KnownAssetCache::AddName("scripts/entitlements.rson");
+}
+
+void VerbosityCallback(size_t count)
+{
+    if (count == 1)
+    {
+        spdlog::get("logger")->set_level(spdlog::level::debug);
+    }
+    else if (count > 1)
+    {
+        spdlog::get("logger")->set_level(spdlog::level::trace);
+    }
+}
+
 struct DecompressParams
 {
     std::string BinDir;
@@ -14,6 +40,7 @@ void AddDecompressCommand(CLI::App& app)
     auto params = std::make_shared<DecompressParams>();
     command->add_option("-b,--bindir", params->BinDir, "Path to x64_retail in your Titanfall 2 folder")
         ->required();
+    command->add_flag("-v", VerbosityCallback, "Verbose output (-vv for very verbose)");
     command->add_option("rpak_file", params->RPakFile, "Path to RPak file to decompress")
         ->required();
     command->add_option("output_file", params->OutputFile, "Path to output file", true);
@@ -65,6 +92,7 @@ struct ExtractParams
     std::string BinDir;
     std::string InputDir;
     std::string OutputDir = "extracted";
+    std::string KnownAssets;
     std::string RPakName;
 };
 
@@ -95,6 +123,8 @@ void AddExtractCommand(CLI::App& app)
     command->add_option("-i,--inputdir", params->InputDir, "Path to folder containing rpak files")
         ->required();
     command->add_option("-o,--outputdir", params->OutputDir, "Path to folder to write extracted files", true);
+    command->add_option("-k,--knownassets", params->KnownAssets, "Path to file with list of known asset names");
+    command->add_flag("-v", VerbosityCallback, "Verbose output (-vv for very verbose)");
     command->add_option("rpak_name", params->RPakName, "Name of RPak file to extract (e.g. sp_training)")
         ->required();
 
@@ -126,6 +156,32 @@ void AddExtractCommand(CLI::App& app)
         // Initialize rtech functions
         rtech::Initialize(params->BinDir);
 
+        // Add known asset names
+        AddStaticKnownAssetNames();
+        if (params->KnownAssets != "")
+        {
+            logger->debug("Known assets file: {}", params->KnownAssets);
+            if (!std::filesystem::exists(params->KnownAssets))
+            {
+                throw std::runtime_error(fmt::format("Invalid --knownassets: {} does not exist or is inaccessible", params->KnownAssets));
+            }
+
+            std::ifstream f(params->KnownAssets);
+            if (!f.is_open())
+            {
+                throw std::runtime_error("Failed to open known assets file");
+            }
+
+            std::string line;
+            while (std::getline(f, line))
+            {
+                if (line.size() > 0)
+                {
+                    KnownAssetCache::AddName(line);
+                }
+            }
+        }
+
         // Initialize asset types
         RegisterAssetTypes();
 
@@ -153,7 +209,7 @@ void AddExtractCommand(CLI::App& app)
         RPakFile pak(params->RPakName, number, opener);
         pak.Load();
 
-        // Iterate over assets, create path based on HasName/GetName or GetHash, then open file, and Dump(file)
+        // Iterate over assets and dump ones that can be dumped
         for (uint32_t i = 0; i < pak.GetNumAssets(); i++)
         {
             auto asset = pak.GetAsset(i);
@@ -172,7 +228,6 @@ void InitializeLogger()
     auto logger = std::make_shared<spdlog::logger>("logger", sinks.begin(), sinks.end());
     logger->set_pattern("[%T] [%^%l%$] %v");
     logger->flush_on(spdlog::level::trace);
-    logger->set_level(spdlog::level::debug);
     spdlog::register_logger(logger);
 }
 
@@ -182,7 +237,6 @@ int main(int argc, char** argv)
 
     CLI::App app{ "A tool to extract data from Respawn's RPak files" };
     app.require_subcommand(1, 1);
-    // TODO: Add verbosity to logger
     AddDecompressCommand(app);
     AddExtractCommand(app);
 
@@ -190,7 +244,7 @@ int main(int argc, char** argv)
     {
         app.parse(argc, argv);
     }
-    catch (const CLI::ParseError& e)
+    catch (const CLI::ParseError&)
     {
         std::cerr << app.help() << std::endl;
         return 1;

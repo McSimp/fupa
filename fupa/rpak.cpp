@@ -66,7 +66,7 @@ std::unique_ptr<IAsset> RPakFile::GetAsset(uint32_t index)
     auto result = AssetFactory::Create(const_cast<const AssetDefinition*>(asset), metadata, data);
     if (!result)
     {
-        m_logger->debug("Failed to create IAsset for asset {} of type {:.4s} - no type implementation exists", index, reinterpret_cast<char*>(&asset->Type));
+        m_logger->warn("Failed to create IAsset for asset {} of type {:.4s} - no type implementation exists", index, reinterpret_cast<char*>(&asset->Type));
         return nullptr;
     }
 

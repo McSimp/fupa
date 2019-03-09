@@ -92,47 +92,21 @@ struct AssetDefinition
 
 static_assert(sizeof(AssetDefinition) == 72, "AssetDefinition must be 72 bytes");
 
-struct MaterialGlue
-{
-    char Unknown[24];
-    char* Name;
-};
-
-struct ShdrMetadata
-{
-    char* Name;
-};
-
-const char* DATATABLE_TYPES[] = {
-    "bool",
-    "int",
-    "float",
-    "vector",
-    "string",
-    "asset",
-    "asset_noprecache"
-};
-
-struct DatatableColumn
-{
-    char* Name;
-    int32_t Type;
-    int32_t Offset;
-};
-
-struct DatatableMetadata
-{
-    int32_t ColumnCount;
-    int32_t RowCount;
-    DatatableColumn* Columns;
-    char* RowData;
-    uint32_t RowSize;
-};
-
 #pragma pack(pop)
 
 const uint32_t kPatchAssetType = 0x68637450; // Ptch
 const uint32_t kTextureAssetType = 0x72747874; // txtr
+const uint32_t kShaderAssetType = 0x72646873; // shdr
+const uint32_t kMaterialAssetType = 0x6C74616D; // matl
+const uint32_t kDatatableAssetType = 0x6C627464; // dtbl
+const uint32_t kShaderSetAssetType = 0x73646873; // shds
+const uint32_t kLCDScreenEffectAssetType = 0x64636C72; // rlcd
+const uint32_t kRSONFileAssetType = 0x6e6f7372; // rson
+const uint32_t kUIImageAtlasType = 0x676D6975; // uimg
+const uint32_t kParticleScriptType = 0x6B737072; // rpsk
+const uint32_t kAnimationRecordingType = 0x72696E61; // anir
+const uint32_t kUIType = 0x6975; // ui
+const uint32_t kUIFontAtlasType = 0x746E6F66; // font
 
 struct PatchMetadata
 {

@@ -48,12 +48,12 @@ public:
 
     bool HasName() override
     {
-        return false;
+        return KnownAssetCache::HasName(m_asset->Hash);
     }
 
     std::string GetName() override
     {
-        return "<unknown>";
+        return KnownAssetCache::GetName(m_asset->Hash);
     }
 
     bool CanDump() override
@@ -64,6 +64,18 @@ public:
     void Dump(const std::filesystem::path& outputDir) override
     {
         throw std::runtime_error(fmt::format("Dump not implemented for {}", m_asset->Type));
+    }
+
+    std::string GetNameOrHash()
+    {
+        if (HasName())
+        {
+            return GetName();
+        }
+        else
+        {
+            return std::to_string(m_asset->Hash);
+        }
     }
 
     static std::unique_ptr<IAsset> CreateMethod(const AssetDefinition* asset, const uint8_t* metadata, const uint8_t* data)

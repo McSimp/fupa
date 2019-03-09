@@ -18,9 +18,11 @@
 #include <Windows.Foundation.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <wrl/client.h>
+#include <nlohmann/json.hpp>
 #include "d3d.h"
 #include "CLI11.hpp"
 #include "rtech.h"
+#include "KnownAssetCache.h"
 #include "IAsset.h"
 #include "ttf2.h"
 #include "Util.h"
