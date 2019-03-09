@@ -21,10 +21,37 @@
     <ClInclude Include="rtech.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ScreenGrab.h">
+    <ClInclude Include="Util.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TTF2Structs.h">
+    <ClInclude Include="IDecompressedFileReader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ttf2.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ChainedReader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PreprocessedFileReader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rpak.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CLI11.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="IAsset.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AssetFactory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="d3d.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CompressedFileReader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -38,8 +65,32 @@
     <ClCompile Include="rtech.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="ScreenGrab.cpp">
+    <ClCompile Include="util.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ChainedReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PreprocessedFileReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="rpak.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="AssetFactory.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TTF2Assets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="d3d.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="CompressedFileReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>

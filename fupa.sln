@@ -1,9 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
-VisualStudioVersion = 15.0.28010.2041
+VisualStudioVersion = 15.0.28307.421
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "fupa", "fupa\fupa.vcxproj", "{DA083BC5-622E-4F3F-8B95-054F5A41B072}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "fupa", "fupa\fupa.vcxproj", "{0E34393A-7FDF-40CB-B59D-577F7053C240}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -11,15 +11,15 @@ Global
 		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{DA083BC5-622E-4F3F-8B95-054F5A41B072}.Debug|x64.ActiveCfg = Debug|x64
-		{DA083BC5-622E-4F3F-8B95-054F5A41B072}.Debug|x64.Build.0 = Debug|x64
-		{DA083BC5-622E-4F3F-8B95-054F5A41B072}.Release|x64.ActiveCfg = Release|x64
-		{DA083BC5-622E-4F3F-8B95-054F5A41B072}.Release|x64.Build.0 = Release|x64
+		{0E34393A-7FDF-40CB-B59D-577F7053C240}.Debug|x64.ActiveCfg = Debug|x64
+		{0E34393A-7FDF-40CB-B59D-577F7053C240}.Debug|x64.Build.0 = Debug|x64
+		{0E34393A-7FDF-40CB-B59D-577F7053C240}.Release|x64.ActiveCfg = Release|x64
+		{0E34393A-7FDF-40CB-B59D-577F7053C240}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {40E31DCB-EF89-408B-8150-320F4A48A889}
+		SolutionGuid = {9B38032C-66B5-4643-9835-3B0D505FB360}
 	EndGlobalSection
 EndGlobal

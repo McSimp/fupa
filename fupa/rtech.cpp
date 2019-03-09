@@ -55,5 +55,4 @@ uint64_t HashData(const char* data)
     }
 }
 
-
 }

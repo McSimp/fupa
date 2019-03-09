@@ -73,7 +73,7 @@ static_assert(sizeof(SectionDescriptor) == 12, "SectionDescriptor must be 12 byt
 
 struct AssetDefinition
 {
-    uint64_t ID;
+    uint64_t Hash;
     uint32_t Unknown3;
     uint32_t Unknown4;
     SectionReference MetadataRef;
@@ -103,25 +103,14 @@ struct ShdrMetadata
     char* Name;
 };
 
-struct CompressionInfo
-{
-    uint8_t BytesPerBlock;
-    uint8_t BlockSize;
-};
-
-struct TextureMetadata
-{
-    uint64_t Unknown1;
-    char* Name;
-    uint16_t Width; // This is the max - might not actually contain this in the rpak
-    uint16_t Height;
-    uint16_t Unknown2_ShouldBeZero;
-    uint16_t Format;
-    uint32_t DataSize;
-    uint32_t Unknown3;
-    uint8_t Unknown4;
-    uint8_t MipLevels;
-    uint8_t SkippedMips; // Number of mip levels that aren't present (starting from largest size)
+const char* DATATABLE_TYPES[] = {
+    "bool",
+    "int",
+    "float",
+    "vector",
+    "string",
+    "asset",
+    "asset_noprecache"
 };
 
 struct DatatableColumn
@@ -140,6 +129,11 @@ struct DatatableMetadata
     uint32_t RowSize;
 };
 
+#pragma pack(pop)
+
+const uint32_t kPatchAssetType = 0x68637450; // Ptch
+const uint32_t kTextureAssetType = 0x72747874; // txtr
+
 struct PatchMetadata
 {
     uint32_t Unknown1;
@@ -148,4 +142,9 @@ struct PatchMetadata
     uint8_t* PakNumbers;
 };
 
-#pragma pack(pop)
+class PatchAsset : public BaseAsset<PatchAsset, PatchMetadata>
+{
+public:
+    using BaseAsset<PatchAsset, PatchMetadata>::BaseAsset;
+    std::map<std::string, int> BuildRPakMap();
+};
