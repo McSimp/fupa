@@ -8,113 +8,6 @@ ComPtr<ID3D11Device> dev;
 ComPtr<ID3D11DeviceContext> devCon;
 std::ofstream DebugFile("E:\\temp\\dumped_paks\\debug.dat", std::ios::out | std::ios::binary);
 
-#pragma pack(push, 1)
-struct SectionReference
-{
-    uint32_t Section;
-    uint32_t Offset;
-};
-
-struct OuterHeader
-{
-    uint32_t Signature;
-    uint16_t Version;
-    uint16_t Flags;
-    char Unknown1[16];
-    uint64_t CompressedSize;
-    uint64_t Unknown2;
-    uint64_t DecompressedSize;
-    uint64_t Unknown3;
-    uint16_t StarpakPathBlockSize;
-    uint16_t NumSlotDescriptors;
-    uint16_t NumSections;
-    uint16_t NumRPakLinks;
-    uint32_t NumRelocations;
-    uint32_t NumAssets;
-    uint32_t Header72;
-    uint32_t Header76;
-    uint32_t Header80;
-    uint32_t Header84;
-};
-
-static_assert(sizeof(OuterHeader) == 0x58, "Outer header must be 0x58 bytes");
-
-/*
-struct OuterHeader
-{
-    char Unknown1[24];
-    uint64_t CompressedSize;
-    char Unknown2[16];
-    uint64_t DecompressedSize;
-    char Unknown3[72];
-};
-
-static_assert(sizeof(OuterHeader) == 0x80, "Outer header must be 0x80 bytes");
-*/
-
-struct LinkedRPakSize
-{
-    uint64_t SizeOnDisk;
-    uint64_t DecompressedSize;
-};
-
-static_assert(sizeof(LinkedRPakSize) == 16, "LinkedRPakSize must be 16 bytes");
-
-struct SlotDescriptor
-{
-    uint32_t Slot;
-    uint32_t Alignment;
-    uint64_t Size;
-};
-
-static_assert(sizeof(SlotDescriptor) == 16, "SlotDescriptor must be 16 bytes");
-
-struct SectionDescriptor
-{
-    uint32_t SlotDescIndex;
-    uint32_t Alignment;
-    uint32_t Size;
-};
-
-static_assert(sizeof(SectionDescriptor) == 12, "SectionDescriptor must be 12 bytes");
-
-struct AssetDefinition
-{
-    uint64_t ID;
-    uint32_t Unknown3;
-    uint32_t Unknown4;
-    SectionReference MetadataRef;
-    SectionReference DataRef;
-    uint64_t Unknown5;
-    uint16_t NumRequiredSections; // Number of sections required to have been loaded before asset can be processed
-    uint16_t Unknown6;
-    uint32_t Unknown7;
-    uint32_t UnknownExtra8ByteIndex;
-    uint32_t UnknownExtra8ByteStartIndex;
-    uint32_t UnknownExtra8ByteNumEntries;
-    uint32_t DataSize;
-    uint32_t DataAlignment; // Not 100% sure on this
-    uint32_t Type;
-};
-
-static_assert(sizeof(AssetDefinition) == 72, "AssetDefinition must be 72 bytes");
-
-struct BaseAssetMetadata
-{
-    uint64_t Unknown;
-    char* Name;
-};
-
-struct MaterialGlue
-{
-    char Unknown[24];
-    char* Name;
-};
-
-struct ShdrMetadata
-{
-    char* Name;
-};
 
 DXGI_FORMAT TEXTURE_FORMATS[] = {
     DXGI_FORMAT_BC1_UNORM,
@@ -181,11 +74,6 @@ DXGI_FORMAT TEXTURE_FORMATS[] = {
     DXGI_FORMAT_D16_UNORM
 };
 
-struct CompressionInfo
-{
-    uint8_t BytesPerBlock;
-    uint8_t BlockSize;
-};
 
 CompressionInfo COMPRESSION_INFO[] = {
     { 8, 4 },
@@ -252,21 +140,6 @@ CompressionInfo COMPRESSION_INFO[] = {
     { 2, 1 },
 };
 
-struct TextureMetadata
-{
-    uint64_t Unknown1;
-    char* Name;
-    uint16_t Width; // This is the max - might not actually contain this in the rpak
-    uint16_t Height;
-    uint16_t Unknown2_ShouldBeZero;
-    uint16_t Format;
-    uint32_t DataSize;
-    uint32_t Unknown3;
-    uint8_t Unknown4;
-    uint8_t MipLevels;
-    uint8_t SkippedMips; // Number of mip levels that aren't present (starting from largest size)
-};
-
 const char* DATATABLE_TYPES[] = {
     "bool",
     "int",
@@ -277,31 +150,6 @@ const char* DATATABLE_TYPES[] = {
     "asset_noprecache"
 };
 
-struct DatatableColumn
-{
-    char* Name;
-    int32_t Type;
-    int32_t Offset;
-};
-
-struct DatatableMetadata
-{
-    int32_t ColumnCount;
-    int32_t RowCount;
-    DatatableColumn* Columns;
-    char* RowData;
-    uint32_t RowSize;
-};
-
-struct PatchMetadata
-{
-    uint32_t Unknown1;
-    uint32_t NumFiles;
-    char** PakNames;
-    uint8_t* PakNumbers;
-};
-
-#pragma pack(pop)
 
 // Taken from https://stackoverflow.com/a/18374698
 std::wstring Widen(const std::string& input)
@@ -668,7 +516,7 @@ public:
     void Initialize()
     {
         // Read the outer header
-        spdlog::debug("Initializing {}", m_name);
+        spdlog::info("Initializing {}", m_name);
         spdlog::debug("Reading outer header...");
         m_reader->ReadData(reinterpret_cast<char*>(&m_outerHeader), sizeof(m_outerHeader));
 
@@ -719,6 +567,8 @@ public:
             spdlog::debug("====== RPak Links ======");
             for (uint16_t i = 0; i < m_outerHeader.NumRPakLinks; i++)
             {
+                // TODO: Check if available in decompressed folder.
+                // If not, decompress it.
                 m_reader->PushFile(GetRpakPath(m_baseFolder, m_name, m_linkedRPakNumbers[i]), true);
                 spdlog::debug("{}: Size: 0x{:x}, Decompressed Size: 0x{:x}, Number: {}", i, m_linkedRPakSizes[i].SizeOnDisk, m_linkedRPakSizes[i].DecompressedSize, m_linkedRPakNumbers[i]);
             }
@@ -1023,8 +873,8 @@ public:
             }
             else if (def.Type == 0x73646873) // shds
             {
-                BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
-                spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name);
+                //BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
+                //spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Name: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, metadata->Name);
             }
             else if (def.Type == 0x6C74616D) // matl
             {
@@ -1044,8 +894,8 @@ public:
             }
             else
             {
-                BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
-                spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Metadata: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, (void*)metadata);
+                //BaseAssetMetadata* metadata = reinterpret_cast<BaseAssetMetadata*>(m_sectionPointers[def.MetadataRef.Section] + def.MetadataRef.Offset);
+                //spdlog::debug("{}: ID: 0x{:x}, Type: {:.4s}, Size: 0x{:x}, Metadata: {}", i, def.ID, reinterpret_cast<char*>(&def.Type), def.DataSize, (void*)metadata);
             }
         }
         spdlog::info("Num textures: {}", numTexts);
@@ -1242,7 +1092,7 @@ void DoDecompress(std::string name)
         }
         */
 
-        spdlog::info("BEFORE context={}, unk1={:x}, unk2={:x}, inputBuf={:x}, a1[1]={:x}, a1[2]={:x}, a1[3]={:x}, a1[5]={:x}, a1[6]={:x}, a1[7]={:x}, a1[9]={:x}, a1[10]={:x}, a1[11]={:x}, a1[12]={:x}, a1[14]={:x}, a1[15]={:x}, a1[16]={:x}, FirstDword={:x}, SecondDword={:x}, ThirdDword={:x}",
+        spdlog::info("BEFORE context={}, unk1={:x}, unk2={:x}, inputBuf={:x}, a1[1]={:x}, a1[2]={:x}, a1[3]={:x}, a1[5]={:x}, a1[6]={:x}, a1[7]={:x}, a1[9]={:x}, a1[10]={:x}, a1[11]={:x}, a1[12]={:x}, a1[14]={:x}, a1[15]={:x}, a1[16]={:x}",
             (void*)decompressionState,
             dataRead, totalDecompressed + 0x400000,
             decompressionState[0],
@@ -1258,10 +1108,7 @@ void DoDecompress(std::string name)
             decompressionState[12],
             decompressionState[14],
             decompressionState[15],
-            decompressionState[16],
-            *rtech::FirstDword,
-            *rtech::SecondDword,
-            *rtech::ThirdDword
+            decompressionState[16]
         );
         uint64_t totalDecompressedBefore = decompressionState[10] == sizeof(OuterHeader) ? 0 : decompressionState[10];
         //uint64_t inputProcessedBefore = decompressionState[9] == (sizeof(OuterHeader) + 0x10) ? 0 : decompressionState[9];
@@ -1269,7 +1116,7 @@ void DoDecompress(std::string name)
         rtech::DoDecompress(decompressionState, dataRead, totalDecompressed + 0x400000);
         uint64_t totalDecompressedAfter = decompressionState[10];
         uint64_t inputChunksProcessedAfter = decompressionState[9] / CHUNK_SIZE;
-        spdlog::info("AFTER  context={}, unk1={:x}, unk2={:x}, inputBuf={:x}, a1[1]={:x}, a1[2]={:x}, a1[3]={:x}, a1[5]={:x}, a1[6]={:x}, a1[7]={:x}, a1[9]={:x}, a1[10]={:x}, a1[11]={:x}, a1[12]={:x}, a1[14]={:x}, a1[15]={:x}, a1[16]={:x}, FirstDword={:x}, SecondDword={:x}, ThirdDword={:x}",
+        spdlog::info("AFTER  context={}, unk1={:x}, unk2={:x}, inputBuf={:x}, a1[1]={:x}, a1[2]={:x}, a1[3]={:x}, a1[5]={:x}, a1[6]={:x}, a1[7]={:x}, a1[9]={:x}, a1[10]={:x}, a1[11]={:x}, a1[12]={:x}, a1[14]={:x}, a1[15]={:x}, a1[16]={:x}",
             (void*)decompressionState,
             dataRead, totalDecompressed + 0x400000,
             decompressionState[0],
@@ -1285,10 +1132,7 @@ void DoDecompress(std::string name)
             decompressionState[12],
             decompressionState[14],
             decompressionState[15],
-            decompressionState[16],
-            *rtech::FirstDword,
-            *rtech::SecondDword,
-            *rtech::ThirdDword
+            decompressionState[16]
         );
 
         /*
@@ -1384,9 +1228,9 @@ int main()
     //const char* name = "E:\\temp\\dumped_paks\\sp_training_loadscreen.rpak13";
     //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
     //const char* name = "E:\\temp\\dumped_paks\\common_mp.rpak";
-    const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
+    //const char* name = "E:\\temp\\dumped_paks\\sp_training.rpak43";
     //PakFile pak("E:\\temp\\dumped_paks\\decompressed", "sp_training", 11);
-    PakFile pak("E:\\temp\\dumped_paks\\decompressed", "sp_training", 11);
+    PakFile pak("E:\\temp\\dumped_paks\\decompressed", "patch_master", 0);
     pak.Initialize();
     pak.LoadAllSections();
     pak.ApplyRelocations();

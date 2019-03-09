@@ -91,6 +91,7 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="rtech.h" />
     <ClInclude Include="ScreenGrab.h" />
+    <ClInclude Include="TTF2Structs.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="fupa.cpp" />

@@ -20,6 +20,7 @@
 #include <filesystem>
 
 #include "rtech.h"
+#include "TTF2Structs.h"
 #include "ScreenGrab.h"
 
 #endif //PCH_H

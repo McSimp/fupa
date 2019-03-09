@@ -24,6 +24,9 @@
     <ClInclude Include="ScreenGrab.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="TTF2Structs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">

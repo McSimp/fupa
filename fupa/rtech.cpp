@@ -7,11 +7,6 @@ uint64_t(*SetupDecompressState)(void* pState, char* compressedData, int64_t alwa
 void(*DoDecompress)(void* pState, uint64_t totalBytesReadAndAcked, uint64_t someVal);
 int64_t(*ConstructPatchArray)(uint8_t* inputArray, int32_t a2, const char* a3, uint8_t* a4, uint8_t* a5);
 
-
-uint32_t* FirstDword;
-uint32_t* SecondDword;
-uint32_t* ThirdDword;
-
 void Initialize(const std::string& dllPath)
 {
     // Load rtech_game.dll - we need some functions from it
@@ -32,7 +27,7 @@ void Initialize(const std::string& dllPath)
         throw std::runtime_error(fmt::format("VirtualQuery returned NULL (Win32 Error = 0x{:x})", GetLastError()));
     }
 
-    char* base = (char*)mem.AllocationBase;
+    char* base = reinterpret_cast<char*>(mem.AllocationBase);
     if (base == nullptr)
     {
         throw std::runtime_error("mem.AllocationBase was NULL");
@@ -43,10 +38,6 @@ void Initialize(const std::string& dllPath)
     SetupDecompressState = reinterpret_cast<decltype(SetupDecompressState)>(base + 0x4b80);
     DoDecompress = reinterpret_cast<decltype(DoDecompress)>(base + 0x4ea0);
     ConstructPatchArray = reinterpret_cast<decltype(ConstructPatchArray)>(base + 0x56c0);
-
-    FirstDword = reinterpret_cast<uint32_t*>(base + 0x4324c);
-    SecondDword = reinterpret_cast<uint32_t*>(base + 0x43250);
-    ThirdDword = reinterpret_cast<uint32_t*>(base + 0x43254);
 
     // TODO: FreeLibrary at end of program
 }
