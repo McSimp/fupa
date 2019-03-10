@@ -1,7 +1,5 @@
 #include "pch.h"
 
-const uint16_t kExpectedVersion = 7;
-const uint32_t kRpakSignature = 0x6B615052; // RPak
 const char kPatchArray1Values[] = { 0, 1, 2, 3, 4, 5, 6 };
 const char kPatchArray2Values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
 const uint64_t kSpecialPatchAmounts[] = { 3, 7, 6 };
@@ -99,12 +97,12 @@ void RPakFile::ReadHeader()
     m_logger->debug("NumRPakLinks: {}", m_outerHeader.NumRPakLinks);
     m_logger->debug("NumRelocations: {}", m_outerHeader.NumRelocations);
     m_logger->debug("NumAssets: {}", m_outerHeader.NumAssets);
-    m_logger->debug("Header72: {}", m_outerHeader.Header72);
-    m_logger->debug("Header76: {}", m_outerHeader.Header76);
-    m_logger->debug("Header80: {}", m_outerHeader.Header80);
-    m_logger->debug("Header84: {}", m_outerHeader.Header84);
+    m_logger->debug("NumExtraHeader8Bytes: {}", m_outerHeader.NumExtraHeader8Bytes);
+    m_logger->debug("NumExtraHeader4Bytes1: {}", m_outerHeader.NumExtraHeader4Bytes1);
+    m_logger->debug("NumExtraHeader4Bytes2: {}", m_outerHeader.NumExtraHeader4Bytes2);
+    m_logger->debug("NumExtraHeader1Bytes: {}", m_outerHeader.NumExtraHeader1Bytes);
 
-    m_bytesUntilNextPatch = m_outerHeader.DecompressedSize - 0x58 + (m_outerHeader.NumRPakLinks != 0 ? 0 : 1);
+    m_bytesUntilNextPatch = m_outerHeader.DecompressedSize - sizeof(OuterHeader) + (m_outerHeader.NumRPakLinks != 0 ? 0 : 1);
     m_patchInstruction = &RPakFile::PatchFuncRead;
 
     // Read data on links to other RPaks
@@ -162,6 +160,14 @@ void RPakFile::ReadHeader()
         }
     }
 
+    if (m_outerHeader.SizeOfUnknownThingAfterStarpakBlock != 0)
+    {
+        m_logger->debug("====== Unknown Data After Starpaks ======");
+        m_logger->debug("Size: 0x{:x}", m_outerHeader.SizeOfUnknownThingAfterStarpakBlock);
+        std::unique_ptr<char[]> unknownData = std::make_unique<char[]>(m_outerHeader.SizeOfUnknownThingAfterStarpakBlock);
+        ReadPatchedData(unknownData.get(), m_outerHeader.SizeOfUnknownThingAfterStarpakBlock);
+    }
+
     if (m_outerHeader.NumSlotDescriptors == 0)
     {
         throw std::runtime_error("NumSlotDescriptors was 0");
@@ -176,7 +182,7 @@ void RPakFile::ReadHeader()
 
     // Calculate sizes, offsets, and alignments
     uint64_t slotSizes[kNumSlots] = {};
-    uint64_t slotDescOffsets[20] = {}; // TODO: Probably should make this dynamically allocated
+    uint64_t slotDescOffsets[32] = {}; // TODO: Probably should make this dynamically allocated
     uint32_t slotAlignments[kNumSlots] = {};
     for (uint16_t i = 0; i < m_outerHeader.NumSlotDescriptors; i++)
     {
@@ -254,9 +260,11 @@ void RPakFile::ReadHeader()
         m_logger->debug("{}: {:.4s}", i, assetType);
     }
 
+    // TODO: Print out statistics on total number of each asset type
+
     // Read extra header
     m_logger->debug("====== Extra Header ======");
-    size_t extraHeaderSize = (m_outerHeader.Header72 * 8) + (m_outerHeader.Header76 * 4) + (m_outerHeader.Header80 * 4) + m_outerHeader.Header84;
+    size_t extraHeaderSize = (m_outerHeader.NumExtraHeader8Bytes * 8) + (m_outerHeader.NumExtraHeader4Bytes1 * 4) + (m_outerHeader.NumExtraHeader4Bytes2 * 4) + m_outerHeader.NumExtraHeader1Bytes;
     m_logger->debug("Size: 0x{:x}", extraHeaderSize);
 
     m_extraHeader = std::make_unique<char[]>(extraHeaderSize);

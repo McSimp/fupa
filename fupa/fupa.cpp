@@ -14,6 +14,61 @@ void AddStaticKnownAssetNames()
     KnownAssetCache::AddName("scripts/entitlements.rson");
 }
 
+std::unique_ptr<IDecompressedFileReader> FileReaderFactory(const std::string& inputDir, const std::string& rpakName, int number)
+{
+    auto logger = spdlog::get("logger");
+    std::string path = Util::GetRpakPath(inputDir, rpakName, number).string();
+    logger->debug("Opening rpak: {}", path);
+
+    // Pre-parse the header to see if the file is compressed or not
+    std::ifstream f(path, std::ios::in | std::ios::binary);
+    if (!f.is_open())
+    {
+        throw std::runtime_error("Failed to open file");
+    }
+
+    OuterHeader header;
+    f.read(reinterpret_cast<char*>(&header), sizeof(OuterHeader));
+    f.seekg(0, std::ios::end);
+    size_t size = f.tellg();
+
+    // If 1 is not set in flags, file is not compressed
+    if ((header.Flags & 0x100) == 0)
+    {
+        logger->debug("File is not compressed, opening with PreprocessedFileReader");
+
+        if (header.DecompressedSize != header.CompressedSize)
+        {
+            throw std::runtime_error(fmt::format("Flags in {} state that file is not compressed, but decompressed size != compressed size", path));
+        }
+
+        if (size != header.DecompressedSize)
+        {
+            throw std::runtime_error(fmt::format("Size of {} (0x{:x}) does not match size in header (0x{:x})", path, size, header.CompressedSize));
+        }
+
+        return std::make_unique<PreprocessedFileReader>(path);
+    }
+    
+    // Otherwise, file states that it is compressed. We might be trying to open a 
+    // file that has been pre-decompressed with fupa though, so we want to use the
+    // PreprocessedFileReader in that case.
+    if (size == header.DecompressedSize)
+    {
+        logger->debug("File appears to have been manually decompressed, opening with PreprocessedFileReader");
+        return std::make_unique<PreprocessedFileReader>(path);
+    }
+
+    if (size != header.CompressedSize)
+    {
+        throw std::runtime_error(fmt::format("Size of {} (0x{:x}) does not match compressed size in header (0x{:x})", path, size, header.CompressedSize));
+    }
+
+    logger->debug("File is compressed, opening with CompressedFileReader");
+    return std::make_unique<CompressedFileReader>(path);
+}
+
+
 void VerbosityCallback(size_t count)
 {
     if (count == 1)
@@ -183,14 +238,12 @@ void AddExtractCommand(CLI::App& app)
         }
 
         // Initialize asset types
+        RegisterCommonAssetTypes();
         RegisterAssetTypes();
 
         // Create file opener
-        auto opener = [params, logger](const std::string& rpakName, int number) {
-            std::string path = Util::GetRpakPath(params->InputDir, rpakName, number).string();
-            logger->debug("Opening rpak: {}", path);
-            return std::make_unique<CompressedFileReader>(path);
-        };
+        using namespace std::placeholders;
+        auto opener = std::bind(FileReaderFactory, params->InputDir, _1, _2);
 
         // Get map of asset names to latest number
         auto assetMap = GetPatchRPakMap(opener);

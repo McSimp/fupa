@@ -38,7 +38,7 @@ CompressedFileReader::CompressedFileReader(std::string filename) :
     uint64_t expectedDecompressedSize = rtech::SetupDecompressState(m_decompressionState, m_tempCompressedData, 0xFFFFFF, m_compressedSize, 0, sizeof(OuterHeader));
     if (expectedDecompressedSize != m_decompressedSize)
     {
-        throw std::runtime_error(fmt::format("Compressed size in header (0x{:x}) does not match compressed size from data (0x{:x})", m_decompressedSize, expectedDecompressedSize));
+        throw std::runtime_error(fmt::format("Decompressed size in header (0x{:x}) does not match decompressed size from data (0x{:x})", m_decompressedSize, expectedDecompressedSize));
     }
 
     m_decompressionState[1] = reinterpret_cast<uint64_t>(m_tempDecompressedData);

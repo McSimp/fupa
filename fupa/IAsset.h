@@ -3,7 +3,7 @@
 class IAsset
 {
 public:
-    virtual uint32_t GetDataSize() = 0;
+    virtual uint32_t GetMetadataSize() = 0;
     virtual const uint8_t* GetData() = 0;
     virtual uint32_t GetType() = 0;
     virtual bool HasName() = 0;
@@ -26,9 +26,9 @@ public:
         m_data = data;
     }
 
-    uint32_t GetDataSize() override
+    uint32_t GetMetadataSize() override
     {
-        return m_asset->DataSize;
+        return m_asset->MetadataSize;
     }
 
     const uint8_t* GetData() override
@@ -74,7 +74,7 @@ public:
         }
         else
         {
-            return std::to_string(m_asset->Hash);
+            return fmt::format("{:x}", m_asset->Hash);
         }
     }
 
@@ -89,4 +89,5 @@ protected:
     const uint8_t* m_data;
 };
 
+void RegisterCommonAssetTypes();
 void RegisterAssetTypes();

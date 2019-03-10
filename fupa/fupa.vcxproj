@@ -88,9 +88,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="apex\apex_types.h" />
     <ClInclude Include="AssetFactory.h" />
     <ClInclude Include="ChainedReader.h" />
     <ClInclude Include="CLI11.hpp" />
+    <ClInclude Include="common\common_types.h" />
     <ClInclude Include="CompressedFileReader.h" />
     <ClInclude Include="d3d.h" />
     <ClInclude Include="IAsset.h" />
@@ -100,12 +102,14 @@
     <ClInclude Include="PreprocessedFileReader.h" />
     <ClInclude Include="rpak.h" />
     <ClInclude Include="rtech.h" />
-    <ClInclude Include="ttf2.h" />
+    <ClInclude Include="ttf2\ttf2_types.h" />
     <ClInclude Include="Util.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="apex\apex_assets.cpp" />
     <ClCompile Include="AssetFactory.cpp" />
     <ClCompile Include="ChainedReader.cpp" />
+    <ClCompile Include="common\common_assets.cpp" />
     <ClCompile Include="CompressedFileReader.cpp" />
     <ClCompile Include="d3d.cpp" />
     <ClCompile Include="fupa.cpp" />
@@ -117,7 +121,7 @@
     <ClCompile Include="PreprocessedFileReader.cpp" />
     <ClCompile Include="rpak.cpp" />
     <ClCompile Include="rtech.cpp" />
-    <ClCompile Include="TTF2Assets.cpp" />
+    <ClCompile Include="ttf2\ttf2_assets.cpp" />
     <ClCompile Include="util.cpp" />
   </ItemGroup>
   <ItemGroup>

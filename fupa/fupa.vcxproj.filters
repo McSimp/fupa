@@ -13,6 +13,24 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Header Files\common">
+      <UniqueIdentifier>{38d3e83f-8796-4837-bf6a-153f10c475c7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\ttf2">
+      <UniqueIdentifier>{7af0e12f-3744-4ae7-8833-cd4146a16960}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\apex">
+      <UniqueIdentifier>{38c50a44-089f-4427-9978-fe79d66f0ba9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\common">
+      <UniqueIdentifier>{ac1be6a2-324f-4bb2-ba48-4e125b0b41ec}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\ttf2">
+      <UniqueIdentifier>{1d6e9002-e637-48a9-b334-54fa76a1eeb9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\apex">
+      <UniqueIdentifier>{e9bdcce2-ce8c-47e9-9e76-b9d55bc7a13f}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h">
@@ -25,9 +43,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="IDecompressedFileReader.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="ttf2.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ChainedReader.h">
@@ -57,6 +72,15 @@
     <ClInclude Include="KnownAssetCache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="common\common_types.h">
+      <Filter>Header Files\common</Filter>
+    </ClInclude>
+    <ClInclude Include="apex\apex_types.h">
+      <Filter>Header Files\apex</Filter>
+    </ClInclude>
+    <ClInclude Include="ttf2\ttf2_types.h">
+      <Filter>Header Files\ttf2</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -83,9 +107,6 @@
     <ClCompile Include="AssetFactory.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TTF2Assets.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="d3d.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -94,6 +115,15 @@
     </ClCompile>
     <ClCompile Include="KnownAssetCache.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="apex\apex_assets.cpp">
+      <Filter>Source Files\apex</Filter>
+    </ClCompile>
+    <ClCompile Include="common\common_assets.cpp">
+      <Filter>Source Files\common</Filter>
+    </ClCompile>
+    <ClCompile Include="ttf2\ttf2_assets.cpp">
+      <Filter>Source Files\ttf2</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

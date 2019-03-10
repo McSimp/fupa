@@ -1,6 +1,8 @@
 #pragma once
 
 #define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
+#define APEX
+//#define TTF2
 
 #include <string>
 #include <Windows.h>
@@ -24,7 +26,9 @@
 #include "rtech.h"
 #include "KnownAssetCache.h"
 #include "IAsset.h"
-#include "ttf2.h"
+#include "common/common_types.h"
+#include "ttf2/ttf2_types.h"
+#include "apex/apex_types.h"
 #include "Util.h"
 #include "IDecompressedFileReader.h"
 #include "CompressedFileReader.h"
