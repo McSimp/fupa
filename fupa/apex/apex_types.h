@@ -15,7 +15,7 @@ struct OuterHeader
     uint64_t DecompressedSize;
     char Unknown3[16];
     uint16_t StarpakPathBlockSize;
-    uint16_t SizeOfUnknownThingAfterStarpakBlock;
+    uint16_t FullStarpakPathBlockSize;
     uint16_t NumSlotDescriptors;
     uint16_t NumSections;
     uint16_t NumRPakLinks;

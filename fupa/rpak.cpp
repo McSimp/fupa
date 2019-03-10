@@ -92,6 +92,9 @@ void RPakFile::ReadHeader()
     m_logger->debug("Flags: 0x{:x}", m_outerHeader.Flags);
     m_logger->debug("DecompressedSize: 0x{:x}", m_outerHeader.DecompressedSize);
     m_logger->debug("StarpakPathBlockSize: 0x{:x}", m_outerHeader.StarpakPathBlockSize);
+#ifdef APEX
+    m_logger->debug("FullStarpakPathBlockSize: 0x{:x}", m_outerHeader.FullStarpakPathBlockSize);
+#endif
     m_logger->debug("NumSlotDescriptors: {}", m_outerHeader.NumSlotDescriptors);
     m_logger->debug("NumSections: {}", m_outerHeader.NumSections);
     m_logger->debug("NumRPakLinks: {}", m_outerHeader.NumRPakLinks);
@@ -138,34 +141,18 @@ void RPakFile::ReadHeader()
         std::unique_ptr<char[]> starpakBlock = std::make_unique<char[]>(m_outerHeader.StarpakPathBlockSize);
         ReadPatchedData(starpakBlock.get(), m_outerHeader.StarpakPathBlockSize);
 
-        size_t offset = 0;
-        while (offset < m_outerHeader.StarpakPathBlockSize)
-        {
-            const char* path = starpakBlock.get() + offset;
-            size_t pathLen = strlen(path);
-            if (pathLen > 0)
-            {
-                m_starpakPaths.emplace_back(path, pathLen);
-                m_logger->debug("{}", m_starpakPaths.back());
-                if (m_starpakPaths.back().find("_hotswap.starpak") != std::string::npos)
-                {
-                    throw std::runtime_error("Unexpected hotswap starpak present in file");
-                }
-                offset += pathLen + 1;
-            }
-            else
-            {
-                break;
-            }
-        }
+        m_starpakPaths = ParseStarpakBlock(starpakBlock.get(), m_outerHeader.StarpakPathBlockSize);
     }
 
-    if (m_outerHeader.SizeOfUnknownThingAfterStarpakBlock != 0)
+    if (m_outerHeader.FullStarpakPathBlockSize != 0)
     {
-        m_logger->debug("====== Unknown Data After Starpaks ======");
-        m_logger->debug("Size: 0x{:x}", m_outerHeader.SizeOfUnknownThingAfterStarpakBlock);
-        std::unique_ptr<char[]> unknownData = std::make_unique<char[]>(m_outerHeader.SizeOfUnknownThingAfterStarpakBlock);
-        ReadPatchedData(unknownData.get(), m_outerHeader.SizeOfUnknownThingAfterStarpakBlock);
+        m_logger->debug("====== Full Starpak Paths ======");
+        m_logger->debug("Size: 0x{:x}", m_outerHeader.FullStarpakPathBlockSize);
+
+        std::unique_ptr<char[]> fullStarpakBlock = std::make_unique<char[]>(m_outerHeader.FullStarpakPathBlockSize);
+        ReadPatchedData(fullStarpakBlock.get(), m_outerHeader.FullStarpakPathBlockSize);
+
+        m_fullStarpakPaths = ParseStarpakBlock(fullStarpakBlock.get(), m_outerHeader.FullStarpakPathBlockSize);
     }
 
     if (m_outerHeader.NumSlotDescriptors == 0)
@@ -254,13 +241,20 @@ void RPakFile::ReadHeader()
 
     m_assetDefinitions = std::make_unique<AssetDefinition[]>(m_outerHeader.NumAssets);
     ReadPatchedData(reinterpret_cast<char*>(m_assetDefinitions.get()), sizeof(AssetDefinition) * m_outerHeader.NumAssets);
+    std::unordered_map<uint32_t, int> assetCounts;
     for (uint32_t i = 0; i < m_outerHeader.NumAssets; i++)
     {
         char* assetType = reinterpret_cast<char*>(&m_assetDefinitions[i].Type);
         m_logger->debug("{}: {:.4s}", i, assetType);
+        ++assetCounts[m_assetDefinitions[i].Type];
     }
 
-    // TODO: Print out statistics on total number of each asset type
+    // Print out statistics on total number of each asset type
+    m_logger->info("====== Asset Totals ======");
+    for (auto const&[key, val] : assetCounts)
+    {
+        m_logger->info("{:.4s}: {}", reinterpret_cast<const char*>(&key), val);
+    }
 
     // Read extra header
     m_logger->debug("====== Extra Header ======");
@@ -329,6 +323,33 @@ void RPakFile::ApplyRelocations()
         // Update the reference data to be a real pointer
         *reinterpret_cast<char**>(ref) = m_sectionPointers[ref->Section] + ref->Offset;
     }
+}
+
+std::vector<std::string> RPakFile::ParseStarpakBlock(const char* data, size_t blockSize)
+{
+    std::vector<std::string> starpakPaths;
+    size_t offset = 0;
+    while (offset < blockSize)
+    {
+        const char* path = data + offset;
+        size_t pathLen = strlen(path);
+        if (pathLen > 0)
+        {
+            starpakPaths.emplace_back(path, pathLen);
+            m_logger->debug("{}", starpakPaths.back());
+            if (starpakPaths.back().find("_hotswap.starpak") != std::string::npos)
+            {
+                throw std::runtime_error("Unexpected hotswap starpak present in file");
+            }
+            offset += pathLen + 1;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return starpakPaths;
 }
 
 void RPakFile::ReadPatchedData(char* buffer, size_t bytesToRead)

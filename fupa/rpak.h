@@ -19,6 +19,7 @@ private:
     void LoadSections();
     void ApplyRelocations();
 
+    std::vector<std::string> ParseStarpakBlock(const char* data, size_t blockSize);
     void ReadPatchedData(char* buffer, size_t bytesToRead);
     int32_t NormalizeSection(uint32_t section);
     void UpdatePatchInstruction();
@@ -62,6 +63,7 @@ private:
 
     // Starpak links
     std::vector<std::string> m_starpakPaths;
+    std::vector<std::string> m_fullStarpakPaths;
 
     // Slots
     std::unique_ptr<SlotDescriptor[]> m_slotDescriptors;
