@@ -136,9 +136,32 @@ public:
     }
 };
 
+struct ShaderMetadata
+{
+    char* Name;
+    uint8_t Type; // 0 = Pixel Shader, 1 = Vertex Shader, 2 = Geometry Shader, 3 = ??, 4 = ??, 5 = Compute Shader
+};
+
+class ShaderAsset : public BaseAsset<ShaderAsset, ShaderMetadata>
+{
+public:
+    using BaseAsset<ShaderAsset, ShaderMetadata>::BaseAsset;
+
+    bool HasName() override
+    {
+        return m_metadata->Name != nullptr;
+    }
+
+    std::string GetName() override
+    {
+        return m_metadata->Name;
+    }
+};
+
 void RegisterAssetTypes()
 {
     AssetFactory::Register(kMaterialAssetType, &MaterialAsset::CreateMethod);
+    AssetFactory::Register(kShaderAssetType, &ShaderAsset::CreateMethod);
 }
 
 #endif
