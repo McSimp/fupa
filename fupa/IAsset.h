@@ -9,9 +9,12 @@ public:
     virtual bool HasName() = 0;
     virtual std::string GetName() = 0;
     virtual uint64_t GetHash() = 0;
+    virtual std::filesystem::path GetOutputFilePath() = 0;
+
+    virtual bool HasEmbeddedName() = 0;
+    virtual std::string GetEmbeddedName() = 0;
     virtual std::filesystem::path GetBaseOutputDirectory() = 0;
     virtual std::string GetOutputFileExtension() = 0;
-    virtual std::filesystem::path GetOutputFilePath() = 0;
     virtual bool CanDump() = 0;
     virtual void Dump(const std::filesystem::path& outFilePath) = 0;
 };
@@ -51,12 +54,36 @@ public:
 
     bool HasName() override
     {
-        return KnownAssetCache::HasName(m_asset->Hash);
+        if (HasEmbeddedName())
+        {
+            return true;
+        }
+        else
+        {
+            return KnownAssetCache::HasName(m_asset->Hash);
+        }
     }
 
     std::string GetName() override
     {
-        return KnownAssetCache::GetName(m_asset->Hash);
+        if (HasEmbeddedName())
+        {
+            return GetEmbeddedName();
+        }
+        else
+        {
+            return KnownAssetCache::GetName(m_asset->Hash);
+        }
+    }
+
+    bool HasEmbeddedName() override
+    {
+        return false;
+    }
+
+    std::string GetEmbeddedName() override
+    {
+        throw std::runtime_error("BaseAssets do not have embedded names");
     }
 
     bool CanDump() override

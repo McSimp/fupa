@@ -263,12 +263,12 @@ class TextureAsset : public BaseAsset<TextureAsset, TextureMetadata>
 public:
     using BaseAsset<TextureAsset, TextureMetadata>::BaseAsset;
 
-    bool HasName() override
+    bool HasEmbeddedName() override
     {
         return m_metadata->Name != nullptr;
     }
 
-    std::string GetName() override
+    std::string GetEmbeddedName() override
     {
         return m_metadata->Name;
     }

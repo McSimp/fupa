@@ -85,4 +85,7 @@ struct TextureMetadata
 };
 
 #pragma pack(pop)
+
+const uint32_t kTextureListType = 0x736C7874; // txls
+
 #endif

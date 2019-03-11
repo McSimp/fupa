@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "../pch.h"
 
 #ifdef APEX
 
@@ -34,12 +35,12 @@ public:
         return true;
     }
 
-    bool HasName() override
+    bool HasEmbeddedName() override
     {
         return m_metadata->Name != nullptr;
     }
 
-    std::string GetName() override
+    std::string GetEmbeddedName() override
     {
         return m_metadata->Name;
     }
@@ -147,14 +148,74 @@ class ShaderAsset : public BaseAsset<ShaderAsset, ShaderMetadata>
 public:
     using BaseAsset<ShaderAsset, ShaderMetadata>::BaseAsset;
 
-    bool HasName() override
+    bool HasEmbeddedName() override
     {
         return m_metadata->Name != nullptr;
     }
 
-    std::string GetName() override
+    std::string GetEmbeddedName() override
     {
         return m_metadata->Name;
+    }
+};
+
+struct ShaderSetMetadata
+{
+    uint16_t VTableSlot;
+    char* Name;
+};
+
+class ShaderSetAsset : public BaseAsset<ShaderSetAsset, ShaderSetMetadata>
+{
+public:
+    using BaseAsset<ShaderSetAsset, ShaderSetMetadata>::BaseAsset;
+
+    bool HasEmbeddedName() override
+    {
+        return m_metadata->Name != nullptr;
+    }
+
+    std::string GetEmbeddedName() override
+    {
+        return m_metadata->Name;
+    }
+};
+
+struct TextureListMetadata
+{
+    uint64_t* pHashes;
+    char** pNames;
+    uint64_t NumEntries;
+};
+
+class TextureListAsset : public BaseAsset<TextureListAsset, TextureListMetadata>
+{
+public:
+    using BaseAsset<TextureListAsset, TextureListMetadata>::BaseAsset;
+
+    std::string GetOutputFileExtension() override
+    {
+        return ".json";
+    }
+
+    bool CanDump() override
+    {
+        return true;
+    }
+
+    void Dump(const std::filesystem::path& outFilePath) override
+    {
+        using json = nlohmann::json;
+
+        json data;
+        for (uint32_t i = 0; i < m_metadata->NumEntries; i++)
+        {
+            data[fmt::format("{:x}", m_metadata->pHashes[i])] = m_metadata->pNames[i];
+        }
+
+        std::ofstream output(outFilePath);
+        output << std::setw(2) << data << std::endl;
+        spdlog::get("logger")->debug("Wrote texture list with hash {:x} to {}", m_asset->Hash, outFilePath.string());
     }
 };
 
@@ -162,6 +223,8 @@ void RegisterAssetTypes()
 {
     AssetFactory::Register(kMaterialAssetType, &MaterialAsset::CreateMethod);
     AssetFactory::Register(kShaderAssetType, &ShaderAsset::CreateMethod);
+    AssetFactory::Register(kShaderSetAssetType, &ShaderSetAsset::CreateMethod);
+    AssetFactory::Register(kTextureListType, &TextureListAsset::CreateMethod);
 }
 
 #endif

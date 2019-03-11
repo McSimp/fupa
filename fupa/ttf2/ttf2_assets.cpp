@@ -12,12 +12,12 @@ class ShaderAsset : public BaseAsset<ShaderAsset, ShaderMetadata>
 public:
     using BaseAsset<ShaderAsset, ShaderMetadata>::BaseAsset;
 
-    bool HasName() override
+    bool HasEmbeddedName() override
     {
         return m_metadata->Name != nullptr;
     }
 
-    std::string GetName() override
+    std::string GetEmbeddedName() override
     {
         return m_metadata->Name;
     }
@@ -34,12 +34,12 @@ class MaterialAsset : public BaseAsset<MaterialAsset, MaterialGlue>
 public:
     using BaseAsset<MaterialAsset, MaterialGlue>::BaseAsset;
 
-    bool HasName() override
+    bool HasEmbeddedName() override
     {
         return m_metadata->Name != nullptr;
     }
 
-    std::string GetName() override
+    std::string GetEmbeddedName() override
     {
         return m_metadata->Name;
     }
