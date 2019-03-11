@@ -32,14 +32,19 @@ public:
         return true;
     }
 
-    void Dump(const std::filesystem::path& outputDir) override
+    std::filesystem::path GetBaseOutputDirectory() override
+    {
+        return "datatables";
+    }
+
+    std::string GetOutputFileExtension() override
+    {
+        return ".csv";
+    }
+
+    void Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
-
-        std::filesystem::path outFilePath = outputDir / "datatables" / (GetNameOrHash() + ".csv");
-        std::filesystem::path outFileDir = outFilePath;
-        outFileDir.remove_filename();
-        std::filesystem::create_directories(outFileDir);
 
         std::ofstream output(outFilePath);
         for (int32_t col = 0; col < m_metadata->ColumnCount; col++)
@@ -273,7 +278,17 @@ public:
         return m_data != nullptr;
     }
 
-    void Dump(const std::filesystem::path& outputDir) override
+    std::filesystem::path GetBaseOutputDirectory() override
+    {
+        return "textures";
+    }
+
+    std::string GetOutputFileExtension() override
+    {
+        return ".dds";
+    }
+
+    void Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
 
@@ -333,11 +348,6 @@ public:
             return;
         }
 
-        std::filesystem::path outFilePath = outputDir / "textures" / (GetNameOrHash() + ".dds");
-        std::filesystem::path outFileDir = outFilePath;
-        outFileDir.remove_filename();
-        std::filesystem::create_directories(outFileDir);
-
         DirectX::ScratchImage image;
         hr = DirectX::CaptureTexture(D3D::Device.Get(), D3D::DeviceContext.Get(), tex.Get(), image);
         if (FAILED(hr))
@@ -357,9 +367,62 @@ public:
     }
 };
 
+class UIImageAtlasAsset : public BaseAsset<UIImageAtlasAsset, UIImageAtlasMetadata>
+{
+    using BaseAsset<UIImageAtlasAsset, UIImageAtlasMetadata>::BaseAsset;
+
+    bool CanDump() override
+    {
+        return m_data != nullptr;
+    }
+
+    std::string GetOutputFileExtension() override
+    {
+        return ".json";
+    }
+
+    void Dump(const std::filesystem::path& outFilePath) override
+    {
+        using json = nlohmann::json;
+        auto logger = spdlog::get("logger");
+        const AtlasElement* data = reinterpret_cast<const AtlasElement*>(m_data);
+
+        json outputObj = json::object();
+        outputObj["texture_hash"] = fmt::format("{:x}", m_metadata->TextureHash);
+        outputObj["width"] = m_metadata->FullWidth;
+        outputObj["height"] = m_metadata->FullHeight;
+
+        json outputArray = json::array();
+        for (uint16_t i = 0; i < m_metadata->NumElements; i++)
+        {
+            json obj;
+            if (m_metadata->ElementStrings != nullptr)
+            {
+                obj["name"] = std::string(&m_metadata->ElementStrings[m_metadata->UnknownEntries[i].NameStringOffset]);
+            }
+
+            obj["width"] = m_metadata->PixelSizes[i].Width;
+            obj["height"] = m_metadata->PixelSizes[i].Height;
+            obj["u"] = data[i].U;
+            obj["v"] = data[i].V;
+            obj["u_width"] = data[i].Width;
+            obj["v_height"] = data[i].Height;
+
+            outputArray.push_back(obj);
+        }
+
+        outputObj["elements"] = outputArray;
+        
+        std::ofstream output(outFilePath);
+        output << std::setw(2) << outputObj << std::endl;
+        logger->debug("Wrote uimg data with hash {:x} to {}", m_asset->Hash, outFilePath.string());
+    }
+};
+
 void RegisterCommonAssetTypes()
 {
     AssetFactory::Register(kPatchAssetType, &PatchAsset::CreateMethod);
     AssetFactory::Register(kDatatableAssetType, &DatatableAsset::CreateMethod);
     AssetFactory::Register(kTextureAssetType, &TextureAsset::CreateMethod);
+    AssetFactory::Register(kUIImageAtlasType, &UIImageAtlasAsset::CreateMethod);
 }

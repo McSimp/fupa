@@ -55,6 +55,43 @@ struct DatatableColumn
 
 static_assert(sizeof(DatatableColumn) == 16, "DatatableColumn must be 16 bytes");
 
+struct AtlasElement
+{
+    float U;
+    float V;
+    float Width; // In UV coordinates
+    float Height; // In UV coordinates
+};
+
+struct AtlasElementPixelSize
+{
+    uint16_t Width;
+    uint16_t Height;
+};
+
+struct AtlasUnknown
+{
+    uint32_t Unknown1;
+    uint16_t Unknown2;
+    uint16_t NameStringOffset;
+};
+
+struct UIImageAtlasMetadata
+{
+    float Unknown1;
+    float Unknown2;
+    uint16_t FullWidth;
+    uint16_t FullHeight;
+    uint16_t NumElements;
+    uint16_t Unknown3;
+    void* pUnknown;
+    AtlasElementPixelSize* PixelSizes; // array of NumElements
+    void* pUnknown2;
+    AtlasUnknown* UnknownEntries; // array of NumElements 8 byte entries
+    char* ElementStrings; // pointer to blob of strings
+    uint64_t TextureHash;
+};
+
 class PatchAsset : public BaseAsset<PatchAsset, PatchMetadata>
 {
 public:

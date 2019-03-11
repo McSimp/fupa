@@ -9,8 +9,11 @@ public:
     virtual bool HasName() = 0;
     virtual std::string GetName() = 0;
     virtual uint64_t GetHash() = 0;
+    virtual std::filesystem::path GetBaseOutputDirectory() = 0;
+    virtual std::string GetOutputFileExtension() = 0;
+    virtual std::filesystem::path GetOutputFilePath() = 0;
     virtual bool CanDump() = 0;
-    virtual void Dump(const std::filesystem::path& outputDir) = 0;
+    virtual void Dump(const std::filesystem::path& outFilePath) = 0;
 };
 
 struct AssetDefinition;
@@ -61,7 +64,7 @@ public:
         return false;
     }
 
-    void Dump(const std::filesystem::path& outputDir) override
+    void Dump(const std::filesystem::path& outputFilePath) override
     {
         throw std::runtime_error(fmt::format("Dump not implemented for {}", m_asset->Type));
     }
@@ -76,6 +79,21 @@ public:
         {
             return fmt::format("{:x}", m_asset->Hash);
         }
+    }
+
+    std::filesystem::path GetBaseOutputDirectory() override
+    {
+        return std::string(reinterpret_cast<const char*>(&m_asset->Type), 4);
+    }
+
+    std::string GetOutputFileExtension() override
+    {
+        return ".dat";
+    }
+
+    std::filesystem::path GetOutputFilePath() override
+    {
+        return GetBaseOutputDirectory() / (GetNameOrHash() + GetOutputFileExtension());
     }
 
     static std::unique_ptr<IAsset> CreateMethod(const AssetDefinition* asset, const uint8_t* metadata, const uint8_t* data)

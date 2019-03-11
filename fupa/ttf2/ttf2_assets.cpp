@@ -143,15 +143,19 @@ public:
         }
     }
 
-    void Dump(const std::filesystem::path& outputDir) override
+    std::filesystem::path GetBaseOutputDirectory() override
+    {
+        return "rson";
+    }
+
+    std::string GetOutputFileExtension() override
+    {
+        return ".json";
+    }
+
+    void Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
-
-        std::filesystem::path outFilePath = outputDir / "rson" / (GetNameOrHash() + ".json");
-        std::filesystem::path outFileDir = outFilePath;
-        outFileDir.remove_filename();
-        std::filesystem::create_directories(outFileDir);
-
         std::ofstream output(outFilePath);
         output << std::setw(2) << ParseData(m_metadata) << std::endl;
         logger->debug("Wrote rson file with hash {} to {}", m_asset->Hash, outFilePath.string());

@@ -268,7 +268,11 @@ void AddExtractCommand(CLI::App& app)
             auto asset = pak.GetAsset(i);
             if (asset && asset->CanDump())
             {
-                asset->Dump(params->OutputDir);
+                std::filesystem::path outputFile = params->OutputDir / asset->GetOutputFilePath();
+                std::filesystem::path outputFileDir = outputFile;
+                outputFileDir.remove_filename();
+                std::filesystem::create_directories(outputFileDir);
+                asset->Dump(outputFile);
             }
         }
     });
