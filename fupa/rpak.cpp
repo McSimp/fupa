@@ -44,6 +44,17 @@ uint32_t RPakFile::GetNumAssets()
     return m_outerHeader.NumAssets;
 }
 
+const AssetDefinition* RPakFile::GetAssetDefinition(uint32_t index)
+{
+    if (index >= m_outerHeader.NumAssets)
+    {
+        m_logger->error("Index {} is out range of assets ({})", index, m_outerHeader.NumAssets);
+        return nullptr;
+    }
+
+    return &m_assetDefinitions[index];
+}
+
 std::unique_ptr<IAsset> RPakFile::GetAsset(uint32_t index)
 {
     if (index >= m_outerHeader.NumAssets)

@@ -262,19 +262,44 @@ void AddExtractCommand(CLI::App& app)
         RPakFile pak(params->RPakName, number, opener);
         pak.Load();
 
+        // Create JSON array for database
+        using json = nlohmann::json;
+        json assetDB = json::array();
+
         // Iterate over assets and dump ones that can be dumped
         for (uint32_t i = 0; i < pak.GetNumAssets(); i++)
         {
+            json assetInfo;
+            auto assetDef = pak.GetAssetDefinition(i);
+            assetInfo["hash"] = fmt::format("{:x}", assetDef->Hash);
+            assetInfo["type"] = std::string(reinterpret_cast<const char*>(&assetDef->Type), 4);
             auto asset = pak.GetAsset(i);
-            if (asset && asset->CanDump())
+            if (asset)
             {
-                std::filesystem::path outputFile = params->OutputDir / asset->GetOutputFilePath();
-                std::filesystem::path outputFileDir = outputFile;
-                outputFileDir.remove_filename();
-                std::filesystem::create_directories(outputFileDir);
-                asset->Dump(outputFile);
+                if (asset->HasName())
+                {
+                    assetInfo["name"] = asset->GetName();
+                }
+
+                if (asset->CanDump())
+                {
+                    std::filesystem::path outputFile = params->OutputDir / asset->GetOutputFilePath();
+                    std::filesystem::path outputFileDir = outputFile;
+                    outputFileDir.remove_filename();
+                    std::filesystem::create_directories(outputFileDir);
+                    asset->Dump(outputFile);
+                    assetInfo["dump_path"] = asset->GetOutputFilePath().string();
+                }
             }
+            assetDB.push_back(assetInfo);
         }
+
+        // Write out the asset database
+        std::filesystem::path dbFile = std::filesystem::path(params->OutputDir) / (params->RPakName + ".json");
+        std::ofstream output(dbFile);
+        output << std::setw(2) << assetDB << std::endl;
+
+        logger->info("Extraction complete!");
     });
 }
 

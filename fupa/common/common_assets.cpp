@@ -441,12 +441,11 @@ const uint32_t kRSONIntegerType = 0x20;
 const uint32_t kRSONStringListType = 0x1002;
 const uint32_t kRSONObjectListType = 0x1008;
 
-using json = nlohmann::json;
-
 class RSONFileAsset : public BaseAsset<RSONFileAsset, RSONDataDescriptor>
 {
 public:
     using BaseAsset<RSONFileAsset, RSONDataDescriptor>::BaseAsset;
+    using json = nlohmann::json;
 
     bool CanDump() override
     {

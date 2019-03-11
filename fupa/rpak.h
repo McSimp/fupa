@@ -12,6 +12,7 @@ public:
     ~RPakFile();
     void Load();
     uint32_t GetNumAssets();
+    const AssetDefinition* GetAssetDefinition(uint32_t index);
     std::unique_ptr<IAsset> GetAsset(uint32_t index);
 
 private:
