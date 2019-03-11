@@ -87,5 +87,7 @@ struct TextureMetadata
 #pragma pack(pop)
 
 const uint32_t kTextureListType = 0x736C7874; // txls
+const uint32_t kSettingsLayoutType = 0x746C7473; // stlt
+const uint32_t kSettingsType = 0x73677473; // stgt
 
 #endif

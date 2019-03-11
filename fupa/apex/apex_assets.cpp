@@ -219,12 +219,115 @@ public:
     }
 };
 
+struct SettingsFieldDescriptor
+{
+    uint16_t Type;
+    uint16_t NameStringOffset;
+    uint32_t DataOffset : 24;
+    uint32_t ArrayDescriptorIndex : 8;
+};
+
+static_assert(sizeof(SettingsFieldDescriptor) == 8, "SettingsFieldDescriptor must be 8 bytes");
+
+struct ArrayFieldDescriptor
+{
+    char Unknown1[44];
+    uint32_t NumElements;
+    uint32_t ElementSize;
+    char Unknown2[20];
+};
+
+static_assert(sizeof(ArrayFieldDescriptor) == 72, "ArrayFieldDescriptor must be 72 bytes");
+
+struct SettingsLayoutMetadata
+{
+    char* Name;
+    SettingsFieldDescriptor* Fields;
+    void* Unknown1;
+    uint32_t NumFields;
+    char Unknown2[28];
+    char* StringBuffer;
+    ArrayFieldDescriptor* ArrayFields;
+};
+
+const char* kSettingFieldTypes[] = {
+    "bool",
+    "int",
+    "float",
+    "float2",
+    "float3",
+    "string",
+    "asset",
+    "asset",
+    "static_array",
+    "dynamic_array"
+};
+
+class SettingsLayoutAsset : public BaseAsset<SettingsLayoutAsset, SettingsLayoutMetadata>
+{
+public:
+    using BaseAsset<SettingsLayoutAsset, SettingsLayoutMetadata>::BaseAsset;
+    using json = nlohmann::json;
+
+    bool CanDump() override
+    {
+        return true;
+    }
+
+    bool HasEmbeddedName() override
+    {
+        return m_metadata->Name != nullptr;
+    }
+
+    std::string GetEmbeddedName() override
+    {
+        return m_metadata->Name;
+    }
+
+    std::string GetOutputFileExtension() override
+    {
+        return ".json";
+    }
+
+    void Dump(const std::filesystem::path& outFilePath) override
+    {
+        json info;
+        info["name"] = m_metadata->Name;
+        json fields = json::array();
+        for (uint32_t i = 0; i < m_metadata->NumFields; i++)
+        {
+            json fieldObj;
+            const SettingsFieldDescriptor* field = &m_metadata->Fields[i];
+            // The Fields seems to be a hash table, so only entries with NameStringOffset != 0 are actually there
+            if (field->NameStringOffset != 0)
+            {
+                fieldObj["type"] = kSettingFieldTypes[field->Type];
+                fieldObj["offset"] = field->DataOffset;
+                fieldObj["name"] = &m_metadata->StringBuffer[field->NameStringOffset];
+                if (field->Type == 8)
+                {
+                    fieldObj["num_elements"] = m_metadata->ArrayFields[field->ArrayDescriptorIndex].NumElements;
+                    fieldObj["element_size"] = m_metadata->ArrayFields[field->ArrayDescriptorIndex].ElementSize;
+                }
+                fields.push_back(fieldObj);
+            }
+        }
+
+        info["fields"] = fields;
+
+        std::ofstream output(outFilePath);
+        output << std::setw(2) << info << std::endl;
+        spdlog::get("logger")->debug("Wrote settings layout with hash {:x} to {}", m_asset->Hash, outFilePath.string());
+    }
+};
+
 void RegisterAssetTypes()
 {
     AssetFactory::Register(kMaterialAssetType, &MaterialAsset::CreateMethod);
     AssetFactory::Register(kShaderAssetType, &ShaderAsset::CreateMethod);
     AssetFactory::Register(kShaderSetAssetType, &ShaderSetAsset::CreateMethod);
     AssetFactory::Register(kTextureListType, &TextureListAsset::CreateMethod);
+    AssetFactory::Register(kSettingsLayoutType, &SettingsLayoutAsset::CreateMethod);
 }
 
 #endif
