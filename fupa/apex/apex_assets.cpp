@@ -55,7 +55,7 @@ public:
         return ".json";
     }
 
-    void Dump(const std::filesystem::path& outFilePath) override
+    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
         json info;
@@ -70,32 +70,32 @@ public:
 
         if (m_metadata->ShadowMaterialHash != 0)
         {
-            info["shadow_material"] = fmt::format("{:x}", m_metadata->ShadowMaterialHash);
+            info["shadow_material"] = Util::HashToString(m_metadata->ShadowMaterialHash);
         }
         
         if (m_metadata->PrepassMaterialHash != 0)
         {
-            info["prepass_material"] = fmt::format("{:x}", m_metadata->PrepassMaterialHash);
+            info["prepass_material"] = Util::HashToString(m_metadata->PrepassMaterialHash);
         }
 
         if (m_metadata->VSMMaterialHash != 0)
         {
-            info["vsm_material"] = fmt::format("{:x}", m_metadata->VSMMaterialHash);
+            info["vsm_material"] = Util::HashToString(m_metadata->VSMMaterialHash);
         }
         
         if (m_metadata->TightShadowMaterialHash != 0)
         {
-            info["tightshadow_material"] = fmt::format("{:x}", m_metadata->TightShadowMaterialHash);
+            info["tightshadow_material"] = Util::HashToString(m_metadata->TightShadowMaterialHash);
         }
         
         if (m_metadata->ColpassMaterialHash != 0)
         {
-            info["colpass_material"] = fmt::format("{:x}", m_metadata->ColpassMaterialHash);
+            info["colpass_material"] = Util::HashToString(m_metadata->ColpassMaterialHash);
         }
 
         if (m_metadata->ShaderSetHash != 0)
         {
-            info["shader_set"] = fmt::format("{:x}", m_metadata->ShaderSetHash);
+            info["shader_set"] = Util::HashToString(m_metadata->ShaderSetHash);
         }
 
         if (m_metadata->Width != 0)
@@ -119,7 +119,7 @@ public:
             uint64_t* pCurrentHash = m_metadata->pTextureHashes;
             while (pCurrentHash != m_metadata->pUnknown)
             {
-                textures.push_back(fmt::format("{:x}", *pCurrentHash));
+                textures.push_back(Util::HashToString(*pCurrentHash));
                 pCurrentHash++;
             }
             
@@ -134,6 +134,8 @@ public:
         std::ofstream output(outFilePath);
         output << std::setw(2) << info << std::endl;
         logger->debug("Wrote material metadata with hash {:x} to {}", m_asset->Hash, outFilePath.string());
+
+        return { m_metadata->Name };
     }
 };
 
@@ -203,19 +205,23 @@ public:
         return true;
     }
 
-    void Dump(const std::filesystem::path& outFilePath) override
+    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         using json = nlohmann::json;
 
         json data;
+        std::set<std::string> names;
         for (uint32_t i = 0; i < m_metadata->NumEntries; i++)
         {
-            data[fmt::format("{:x}", m_metadata->pHashes[i])] = m_metadata->pNames[i];
+            data[Util::HashToString(m_metadata->pHashes[i])] = m_metadata->pNames[i];
+            names.emplace(m_metadata->pNames[i]);
         }
 
         std::ofstream output(outFilePath);
         output << std::setw(2) << data << std::endl;
         spdlog::get("logger")->debug("Wrote texture list with hash {:x} to {}", m_asset->Hash, outFilePath.string());
+
+        return std::move(names);
     }
 };
 
@@ -289,7 +295,7 @@ public:
         return ".json";
     }
 
-    void Dump(const std::filesystem::path& outFilePath) override
+    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         json info;
         info["name"] = m_metadata->Name;
@@ -318,6 +324,136 @@ public:
         std::ofstream output(outFilePath);
         output << std::setw(2) << info << std::endl;
         spdlog::get("logger")->debug("Wrote settings layout with hash {:x} to {}", m_asset->Hash, outFilePath.string());
+
+        if (m_metadata->Name != nullptr)
+        {
+            return { m_metadata->Name };
+        }
+        else
+        {
+            return {};
+        }
+    }
+};
+
+struct SettingsMetadata
+{
+    uint64_t HashOfLayout;
+    char* Data;
+    char* AssetName;
+    char* AssetNameAgain;
+    char Unknown3[24];
+    uint32_t DataSize;
+};
+
+class SettingsAsset : public BaseAsset<SettingsAsset, SettingsMetadata>
+{
+public:
+    using BaseAsset<SettingsAsset, SettingsMetadata>::BaseAsset;
+    using json = nlohmann::json;
+
+    bool CanDumpPost() override
+    {
+        return true;
+    }
+
+    bool HasEmbeddedName() override
+    {
+        return m_metadata->AssetName != nullptr;
+    }
+
+    std::string GetEmbeddedName() override
+    {
+        return m_metadata->AssetName;
+    }
+
+    std::string GetOutputFileExtension() override
+    {
+        return ".json";
+    }
+
+    std::set<std::string> DumpPost(tDumpedFileOpenerFunc opener, const std::filesystem::path& outFilePath) override
+    {
+        auto logger = spdlog::get("logger");
+        json data;
+        data["layout_hash"] = Util::HashToString(m_metadata->HashOfLayout);
+
+        if (m_metadata->AssetName != nullptr)
+        {
+            data["name"] = m_metadata->AssetName;
+        }
+
+        if (m_metadata->AssetNameAgain != nullptr)
+        {
+            data["name_again"] = m_metadata->AssetNameAgain;
+        }
+
+        // Load the layout asset
+        auto fLayoutAsset = opener(m_metadata->HashOfLayout);
+        if (!fLayoutAsset.has_value())
+        {
+            logger->error("Setting asset with hash {} is missing layout with hash {}", Util::HashToString(GetHash()), Util::HashToString(m_metadata->HashOfLayout));
+            return {};
+        }
+
+        json layout;
+        fLayoutAsset.value() >> layout;
+
+        // Iterate over the fields in the layout and read them out of the settings data
+        json out;
+        for (const auto& field : layout["fields"])
+        {
+            std::string type = field["type"];
+            std::string name = field["name"];
+            if (type == "string" || type == "asset")
+            {
+                out[name] = *(const char**)(m_metadata->Data + field["offset"]);
+            }
+            else if (type == "int")
+            {
+                out[name] = *(int*)(m_metadata->Data + field["offset"]);
+            }
+            else if (type == "bool")
+            {
+                out[name] = *(bool*)(m_metadata->Data + field["offset"]);
+            }
+            else if (type == "float")
+            {
+                out[name] = *(float*)(m_metadata->Data + field["offset"]);
+            }
+            else if (type == "float2")
+            {
+                json floatArray = json::array();
+                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"]));
+                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"] + 4));
+                out[name] = floatArray;
+            }
+            else if (type == "float3")
+            {
+                json floatArray = json::array();
+                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"]));
+                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"] + 4));
+                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"] + 8));
+                out[name] = floatArray;
+            }
+            else
+            {
+                logger->warn("No handler found for field type {} for settings layout {}", type, Util::HashToString(GetHash()));
+            }
+        }
+
+        std::ofstream output(outFilePath);
+        output << std::setw(2) << out << std::endl;
+        spdlog::get("logger")->debug("Wrote settings with hash {:x} to {}", m_asset->Hash, outFilePath.string());
+        
+        if (m_metadata->AssetName != nullptr)
+        {
+            return { m_metadata->AssetName };
+        }
+        else
+        {
+            return {};
+        }
     }
 };
 
@@ -328,6 +464,7 @@ void RegisterAssetTypes()
     AssetFactory::Register(kShaderSetAssetType, &ShaderSetAsset::CreateMethod);
     AssetFactory::Register(kTextureListType, &TextureListAsset::CreateMethod);
     AssetFactory::Register(kSettingsLayoutType, &SettingsLayoutAsset::CreateMethod);
+    AssetFactory::Register(kSettingsType, &SettingsAsset::CreateMethod);
 }
 
 #endif

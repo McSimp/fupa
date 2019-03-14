@@ -42,7 +42,7 @@ public:
         return ".csv";
     }
 
-    void Dump(const std::filesystem::path& outFilePath) override
+    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
 
@@ -61,6 +61,8 @@ public:
                 output << std::endl;
             }
         }
+
+        std::set<std::string> names;
 
         for (int32_t row = 0; row < m_metadata->RowCount; row++)
         {
@@ -88,16 +90,19 @@ public:
                 else if (dtCol.Type == 4)
                 {
                     val = *static_cast<char**>(data);
+                    names.emplace(val);
                     Util::ReplaceAll(val, "\"", "\"\"");
                 }
                 else if (dtCol.Type == 5)
                 {
                     val = *static_cast<char**>(data);
+                    names.emplace(val);
                     Util::ReplaceAll(val, "\"", "\"\"");
                 }
                 else if (dtCol.Type == 6)
                 {
                     val = *static_cast<char**>(data);
+                    names.emplace(val);
                     Util::ReplaceAll(val, "\"", "\"\"");
                 }
                 else
@@ -119,6 +124,7 @@ public:
         }
 
         logger->debug("Wrote datatable with hash {} to {}", m_asset->Hash, outFilePath.string());
+        return std::move(names);
     }
 };
 
@@ -288,20 +294,20 @@ public:
         return ".dds";
     }
 
-    void Dump(const std::filesystem::path& outFilePath) override
+    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
 
         if (m_metadata->Unknown2_ShouldBeZero)
         {
-            logger->error("Cannot dump texture {} - Unknown2_ShouldBeZero was non-zero", m_metadata->Name);
-            return;
+            logger->error("Cannot dump texture {} - Unknown2_ShouldBeZero was non-zero", GetNameOrHash());
+            return {};
         }
 
         if (m_metadata->Height == 0)
         {
-            logger->error("Cannot dump texture {} - Height was zero", m_metadata->Name);
-            return;
+            logger->error("Cannot dump texture {} - Height was zero", GetNameOrHash());
+            return {};
         }
 
         const uint64_t MIP_ALIGNMENT = 16;
@@ -344,26 +350,35 @@ public:
         HRESULT hr = D3D::Device->CreateTexture2D(&desc, &subResources[skippedMips], &tex);
         if (FAILED(hr))
         {
-            logger->error("Cannot dump texture {} - failed to CreateTexture2D (0x{:x})", m_metadata->Name, hr);
-            return;
+            logger->error("Cannot dump texture {} - failed to CreateTexture2D (0x{:x})", GetNameOrHash(), hr);
+            return {};
         }
 
         DirectX::ScratchImage image;
         hr = DirectX::CaptureTexture(D3D::Device.Get(), D3D::DeviceContext.Get(), tex.Get(), image);
         if (FAILED(hr))
         {
-            logger->error("Cannot dump texture {} - failed to CaptureTexture (0x{:x})", m_metadata->Name, hr);
-            return;
+            logger->error("Cannot dump texture {} - failed to CaptureTexture (0x{:x})", GetNameOrHash(), hr);
+            return {};
         }
 
         hr = DirectX::SaveToDDSFile(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::DDS_FLAGS_NONE, Util::Widen(outFilePath.string()).c_str());
         if (FAILED(hr))
         {
-            logger->error("Cannot dump texture {} - failed to SaveToDDSFile (0x{:x})", m_metadata->Name, hr);
-            return;
+            logger->error("Cannot dump texture {} - failed to SaveToDDSFile (0x{:x})", GetNameOrHash(), hr);
+            return {};
         }
 
         logger->debug("Wrote texture {} to {}", GetNameOrHash(), outFilePath.string());
+
+        if (m_metadata->Name != nullptr)
+        {
+            return { m_metadata->Name };
+        }
+        else
+        {
+            return {};
+        }
     }
 };
 
@@ -381,14 +396,16 @@ class UIImageAtlasAsset : public BaseAsset<UIImageAtlasAsset, UIImageAtlasMetada
         return ".json";
     }
 
-    void Dump(const std::filesystem::path& outFilePath) override
+    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         using json = nlohmann::json;
         auto logger = spdlog::get("logger");
         const AtlasElement* data = reinterpret_cast<const AtlasElement*>(m_data);
 
+        std::set<std::string> names;
+
         json outputObj = json::object();
-        outputObj["texture_hash"] = fmt::format("{:x}", m_metadata->TextureHash);
+        outputObj["texture_hash"] = Util::HashToString(m_metadata->TextureHash);
         outputObj["width"] = m_metadata->FullWidth;
         outputObj["height"] = m_metadata->FullHeight;
 
@@ -396,11 +413,15 @@ class UIImageAtlasAsset : public BaseAsset<UIImageAtlasAsset, UIImageAtlasMetada
         for (uint16_t i = 0; i < m_metadata->NumElements; i++)
         {
             json obj;
+
             if (m_metadata->ElementStrings != nullptr)
             {
-                obj["name"] = std::string(&m_metadata->ElementStrings[m_metadata->UnknownEntries[i].NameStringOffset]);
+                const char* name = &m_metadata->ElementStrings[m_metadata->UnknownEntries[i].NameStringOffset];
+                obj["name"] = std::string(name);
+                names.emplace(name);
             }
 
+            obj["subtexture_hash"] = Util::HashToString(m_metadata->UnknownEntries[i].HalfHashName);
             obj["width"] = m_metadata->PixelSizes[i].Width;
             obj["height"] = m_metadata->PixelSizes[i].Height;
             obj["u"] = data[i].U;
@@ -416,6 +437,8 @@ class UIImageAtlasAsset : public BaseAsset<UIImageAtlasAsset, UIImageAtlasMetada
         std::ofstream output(outFilePath);
         output << std::setw(2) << outputObj << std::endl;
         logger->debug("Wrote uimg data with hash {:x} to {}", m_asset->Hash, outFilePath.string());
+
+        return names;
     }
 };
 
@@ -468,7 +491,9 @@ public:
     {
         if (data->Type == kRSONStringType)
         {
-            return reinterpret_cast<char*>(data->Data);
+            const char* str = reinterpret_cast<char*>(data->Data);
+            m_strings.emplace(str);
+            return str;
         }
         else if (data->Type == kRSONObjectType)
         {
@@ -484,6 +509,7 @@ public:
             const char** entries = (const char**)(data->Data);
             for (uint32_t i = 0; i < data->NumEntries; i++)
             {
+                m_strings.emplace(entries[i]);
                 outputArray.push_back(entries[i]);
             }
             return outputArray;
@@ -518,13 +544,17 @@ public:
         return ".json";
     }
 
-    void Dump(const std::filesystem::path& outFilePath) override
+    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
         std::ofstream output(outFilePath);
         output << std::setw(2) << ParseData(m_metadata) << std::endl;
         logger->debug("Wrote rson file with hash {:x} to {}", m_asset->Hash, outFilePath.string());
+        return std::move(m_strings);
     }
+
+private:
+    std::set<std::string> m_strings;
 };
 
 void RegisterCommonAssetTypes()

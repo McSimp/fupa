@@ -13,6 +13,7 @@
 #include <codecvt>
 #include <fstream>
 #include <vector>
+#include <set>
 #include <spdlog/spdlog.h>
 #include <filesystem>
 #include <d3d11.h>

@@ -43,4 +43,9 @@ void ReplaceAll(std::string& source, const std::string& from, const std::string&
     source.swap(newString);
 }
 
+std::string HashToString(uint64_t hash)
+{
+    return fmt::format("{:x}", hash);
+}
+
 }

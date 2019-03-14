@@ -71,7 +71,7 @@ struct AtlasElementPixelSize
 
 struct AtlasUnknown
 {
-    uint32_t Unknown1;
+    uint32_t HalfHashName;
     uint16_t Unknown2;
     uint16_t NameStringOffset;
 };
