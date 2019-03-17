@@ -55,7 +55,7 @@ public:
         return ".json";
     }
 
-    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
         json info;
@@ -205,12 +205,12 @@ public:
         return true;
     }
 
-    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         using json = nlohmann::json;
 
         json data;
-        std::set<std::string> names;
+        std::unordered_set<std::string> names;
         for (uint32_t i = 0; i < m_metadata->NumEntries; i++)
         {
             data[Util::HashToString(m_metadata->pHashes[i])] = m_metadata->pNames[i];
@@ -235,26 +235,21 @@ struct SettingsFieldDescriptor
 
 static_assert(sizeof(SettingsFieldDescriptor) == 8, "SettingsFieldDescriptor must be 8 bytes");
 
-struct ArrayFieldDescriptor
-{
-    char Unknown1[44];
-    uint32_t NumElements;
-    uint32_t ElementSize;
-    char Unknown2[20];
-};
-
-static_assert(sizeof(ArrayFieldDescriptor) == 72, "ArrayFieldDescriptor must be 72 bytes");
-
 struct SettingsLayoutMetadata
 {
     char* Name;
     SettingsFieldDescriptor* Fields;
     void* Unknown1;
     uint32_t NumFields;
-    char Unknown2[28];
+    char Unknown2[16];
+    uint32_t ArrayNumElements;
+    uint32_t ArrayElementSize;
+    uint32_t Unknown3;
     char* StringBuffer;
-    ArrayFieldDescriptor* ArrayFields;
+    SettingsLayoutMetadata* ArrayFields;
 };
+
+static_assert(sizeof(SettingsLayoutMetadata) == 72, "SettingsLayoutMetadata must be 72 bytes");
 
 const char* kSettingFieldTypes[] = {
     "bool",
@@ -295,25 +290,38 @@ public:
         return ".json";
     }
 
-    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    json LayoutToJSON(const SettingsLayoutMetadata* layout)
     {
         json info;
-        info["name"] = m_metadata->Name;
+        if (layout->Name != nullptr)
+        {
+            info["name"] = layout->Name;
+        }
+        
+        if (layout->ArrayNumElements != 0 && layout->ArrayNumElements != 0xFFFFFFFF)
+        {
+            info["array_num_elements"] = layout->ArrayNumElements;
+        }
+
+        if (layout->ArrayElementSize != 0)
+        {
+            info["array_element_size"] = layout->ArrayElementSize;
+        }
+
         json fields = json::array();
-        for (uint32_t i = 0; i < m_metadata->NumFields; i++)
+        for (uint32_t i = 0; i < layout->NumFields; i++)
         {
             json fieldObj;
-            const SettingsFieldDescriptor* field = &m_metadata->Fields[i];
+            const SettingsFieldDescriptor* field = &layout->Fields[i];
             // The Fields seems to be a hash table, so only entries with NameStringOffset != 0 are actually there
             if (field->NameStringOffset != 0)
             {
                 fieldObj["type"] = kSettingFieldTypes[field->Type];
                 fieldObj["offset"] = field->DataOffset;
-                fieldObj["name"] = &m_metadata->StringBuffer[field->NameStringOffset];
-                if (field->Type == 8)
+                fieldObj["name"] = &layout->StringBuffer[field->NameStringOffset];
+                if (field->Type == 8 || field->Type == 9)
                 {
-                    fieldObj["num_elements"] = m_metadata->ArrayFields[field->ArrayDescriptorIndex].NumElements;
-                    fieldObj["element_size"] = m_metadata->ArrayFields[field->ArrayDescriptorIndex].ElementSize;
+                    fieldObj["array"] = LayoutToJSON(&layout->ArrayFields[field->ArrayDescriptorIndex]);
                 }
                 fields.push_back(fieldObj);
             }
@@ -321,6 +329,12 @@ public:
 
         info["fields"] = fields;
 
+        return info;
+    }
+
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    {
+        json info = LayoutToJSON(m_metadata);
         std::ofstream output(outFilePath);
         output << std::setw(2) << info << std::endl;
         spdlog::get("logger")->debug("Wrote settings layout with hash {:x} to {}", m_asset->Hash, outFilePath.string());
@@ -341,9 +355,14 @@ struct SettingsMetadata
     uint64_t HashOfLayout;
     char* Data;
     char* AssetName;
-    char* AssetNameAgain;
-    char Unknown3[24];
+    char Unknown3[32];
     uint32_t DataSize;
+};
+
+struct DynamicArrayInfo
+{
+    uint32_t NumElements;
+    uint32_t DataOffset;
 };
 
 class SettingsAsset : public BaseAsset<SettingsAsset, SettingsMetadata>
@@ -372,7 +391,77 @@ public:
         return ".json";
     }
 
-    std::set<std::string> DumpPost(tDumpedFileOpenerFunc opener, const std::filesystem::path& outFilePath) override
+    json DumpForLayout(const json& layout, char* data, std::unordered_set<std::string>& strings)
+    {
+        json out;
+        for (const auto& field : layout["fields"])
+        {
+            std::string type = field["type"];
+            std::string name = field["name"];
+            strings.insert(name);
+            if (type == "string" || type == "asset")
+            {
+                const char* str = *(const char**)(data + field["offset"]);
+                strings.insert(str);
+                out[name] = str;
+            }
+            else if (type == "int")
+            {
+                out[name] = *(int*)(data + field["offset"]);
+            }
+            else if (type == "bool")
+            {
+                out[name] = *(bool*)(data + field["offset"]);
+            }
+            else if (type == "float")
+            {
+                out[name] = *(float*)(data + field["offset"]);
+            }
+            else if (type == "float2")
+            {
+                json floatArray = json::array();
+                floatArray.push_back(*(float*)(data + field["offset"]));
+                floatArray.push_back(*(float*)(data + field["offset"] + 4));
+                out[name] = floatArray;
+            }
+            else if (type == "float3")
+            {
+                json floatArray = json::array();
+                floatArray.push_back(*(float*)(data + field["offset"]));
+                floatArray.push_back(*(float*)(data + field["offset"] + 4));
+                floatArray.push_back(*(float*)(data + field["offset"] + 8));
+                out[name] = floatArray;
+            }
+            else if (type == "static_array")
+            {
+                json arrayOfSettings = json::array();
+                for (uint32_t i = 0; i < field["array"]["array_num_elements"]; i++)
+                {
+                    arrayOfSettings.push_back(DumpForLayout(field["array"], data + field["offset"] + (i * field["array"]["array_element_size"]), strings));
+                }
+                out[name] = arrayOfSettings;
+            }
+            else if (type == "dynamic_array")
+            {
+                json arrayOfSettings = json::array();
+                const DynamicArrayInfo* dynamicArrayInfo = reinterpret_cast<DynamicArrayInfo*>(data + field["offset"]);
+                char* dynamicArrayData = data + dynamicArrayInfo->DataOffset;
+                for (uint32_t i = 0; i < dynamicArrayInfo->NumElements; i++)
+                {
+                    arrayOfSettings.push_back(DumpForLayout(field["array"], dynamicArrayData + (i * field["array"]["array_element_size"]), strings));
+                }
+                out[name] = arrayOfSettings;
+            }
+            else
+            {
+                spdlog::get("logger")->error("No handler found for field type {} for settings layout {}", type, Util::HashToString(GetHash()));
+            }
+        }
+
+        return out;
+    }
+
+    std::unordered_set<std::string> DumpPost(tDumpedFileOpenerFunc opener, const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
         json data;
@@ -381,11 +470,6 @@ public:
         if (m_metadata->AssetName != nullptr)
         {
             data["name"] = m_metadata->AssetName;
-        }
-
-        if (m_metadata->AssetNameAgain != nullptr)
-        {
-            data["name_again"] = m_metadata->AssetNameAgain;
         }
 
         // Load the layout asset
@@ -400,60 +484,14 @@ public:
         fLayoutAsset.value() >> layout;
 
         // Iterate over the fields in the layout and read them out of the settings data
-        json out;
-        for (const auto& field : layout["fields"])
-        {
-            std::string type = field["type"];
-            std::string name = field["name"];
-            if (type == "string" || type == "asset")
-            {
-                out[name] = *(const char**)(m_metadata->Data + field["offset"]);
-            }
-            else if (type == "int")
-            {
-                out[name] = *(int*)(m_metadata->Data + field["offset"]);
-            }
-            else if (type == "bool")
-            {
-                out[name] = *(bool*)(m_metadata->Data + field["offset"]);
-            }
-            else if (type == "float")
-            {
-                out[name] = *(float*)(m_metadata->Data + field["offset"]);
-            }
-            else if (type == "float2")
-            {
-                json floatArray = json::array();
-                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"]));
-                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"] + 4));
-                out[name] = floatArray;
-            }
-            else if (type == "float3")
-            {
-                json floatArray = json::array();
-                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"]));
-                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"] + 4));
-                floatArray.push_back(*(float*)(m_metadata->Data + field["offset"] + 8));
-                out[name] = floatArray;
-            }
-            else
-            {
-                logger->warn("No handler found for field type {} for settings layout {}", type, Util::HashToString(GetHash()));
-            }
-        }
+        std::unordered_set<std::string> strings;
+        json out = DumpForLayout(layout, m_metadata->Data, strings);
 
         std::ofstream output(outFilePath);
         output << std::setw(2) << out << std::endl;
-        spdlog::get("logger")->debug("Wrote settings with hash {:x} to {}", m_asset->Hash, outFilePath.string());
+        logger->debug("Wrote settings with hash {} to {}", Util::HashToString(m_asset->Hash), outFilePath.string());
         
-        if (m_metadata->AssetName != nullptr)
-        {
-            return { m_metadata->AssetName };
-        }
-        else
-        {
-            return {};
-        }
+        return strings;
     }
 };
 

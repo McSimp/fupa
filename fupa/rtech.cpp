@@ -55,4 +55,10 @@ uint64_t HashData(const char* data)
     }
 }
 
+uint32_t HalfHashData(const char* data)
+{
+    uint64_t hash = HashData(data);
+    return static_cast<uint32_t>(hash ^ (hash >> 32));
+}
+
 }

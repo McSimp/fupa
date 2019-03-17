@@ -14,6 +14,7 @@
 #include <fstream>
 #include <vector>
 #include <set>
+#include <unordered_set>
 #include <spdlog/spdlog.h>
 #include <filesystem>
 #include <d3d11.h>
@@ -25,7 +26,6 @@
 #include "d3d.h"
 #include "CLI11.hpp"
 #include "rtech.h"
-#include "KnownAssetCache.h"
 #include "IAsset.h"
 #include "common/common_types.h"
 #include "ttf2/ttf2_types.h"

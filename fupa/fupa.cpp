@@ -1,19 +1,5 @@
 #include "pch.h"
 
-void AddStaticKnownAssetNames()
-{
-    KnownAssetCache::AddName("scripts/keys_controller_xone.rson");
-    KnownAssetCache::AddName("scripts/keys_controller_ps4.rson");
-    KnownAssetCache::AddName("scripts/keys_keyboard.rson");
-    KnownAssetCache::AddName("scripts/audio/banks.rson");
-    KnownAssetCache::AddName("scripts/skins.rson");
-    KnownAssetCache::AddName("scripts/audio/metadata_tags.rson");
-    KnownAssetCache::AddName("scripts/vscripts/scripts.rson");
-    KnownAssetCache::AddName("scripts/audio/environments.rson");
-    KnownAssetCache::AddName("scripts/audio/soundmeter_busses.rson");
-    KnownAssetCache::AddName("scripts/entitlements.rson");
-}
-
 std::unique_ptr<IDecompressedFileReader> FileReaderFactory(const std::string& inputDir, const std::string& rpakName, int number)
 {
     auto logger = spdlog::get("logger");
@@ -248,7 +234,7 @@ void AddExtractCommand(CLI::App& app)
         using json = nlohmann::json;
         json assetDB = json::object();
         json assetList = json::array();
-        std::set<std::string> assetStrings;
+        std::unordered_set<std::string> assetStrings;
 
         // Iterate over assets and dump ones that can be dumped
         for (uint32_t i = 0; i < pak.GetNumAssets(); i++)
@@ -318,7 +304,7 @@ void AddPostProcessCommand(CLI::App& app)
 {
     CLI::App* command = app.add_subcommand("postprocess", "Post-process assets for an RPak file");
 
-    auto params = std::make_shared<ExtractParams>();
+    auto params = std::make_shared<PostProcessParams>();
     command->add_option("-b,--bindir", params->BinDir, "Path to x64_retail in your Titanfall 2 folder")
         ->required();
     command->add_option("-i,--inputdir", params->InputDir, "Path to folder containing rpak files")
@@ -380,6 +366,8 @@ void AddPostProcessCommand(CLI::App& app)
         std::ifstream f(std::filesystem::path(params->OutputDir) / (params->RPakName + ".json"));
         f >> thisRPakDB;
 
+        std::unordered_set<std::string> strings = thisRPakDB["strings"];
+
         // Create file opener
         using namespace std::placeholders;
         auto opener = std::bind(FileReaderFactory, params->InputDir, _1, _2);
@@ -400,12 +388,261 @@ void AddPostProcessCommand(CLI::App& app)
                 outputFileDir.remove_filename();
                 std::filesystem::create_directories(outputFileDir);
                 auto thisAssetStrings = asset->DumpPost(dumpedOpener, outputFile);
-                // TODO: Add asset strings. Update dump path.
-                //assetStrings.merge(thisAssetStrings);
-                //assetInfo["dump_path"] = asset->GetOutputFilePath().string();
+                strings.merge(thisAssetStrings);
+                thisRPakDB["assets"][i]["dump_path"] = asset->GetOutputFilePath().string();
             }
         }
 
+        thisRPakDB["strings"] = strings;
+
+        // Write out the updated asset database
+        std::filesystem::path dbFile = std::filesystem::path(params->OutputDir) / (params->RPakName + ".json");
+        std::ofstream output(dbFile);
+        output << std::setw(2) << thisRPakDB << std::endl;
+
+        logger->info("Post-processing complete!");
+    });
+}
+
+struct NamingParams
+{
+    std::string BinDir;
+    std::string OutputDir = "extracted";
+    std::string KnownAssets;
+    std::string RPakName;
+};
+
+void AddStringToMaps(const std::string& str, std::unordered_map<uint64_t, std::string>& fullHashMap, std::unordered_map<uint32_t, std::string>& halfHashMap)
+{
+    // TODO: Only add to map if len(new string) > len(existing string)
+    if (!Util::EndsWith(str, ".rpak"))
+    {
+        std::string rpakedString = str + ".rpak";
+        fullHashMap[rtech::HashData(rpakedString.c_str())] = rpakedString;
+        halfHashMap[rtech::HalfHashData(rpakedString.c_str())] = rpakedString;
+    }
+
+    fullHashMap[rtech::HashData(str.c_str())] = str;
+    halfHashMap[rtech::HalfHashData(str.c_str())] = str;
+}
+
+void UpdateUIMGFile(nlohmann::json& asset, const std::string& outputDir, const std::unordered_map<uint32_t, std::string>& halfHashMap)
+{
+    using json = nlohmann::json;
+    auto logger = spdlog::get("logger");
+
+    // Read the uimg file
+    if (asset.find("dump_path") == asset.end())
+    {
+        return;
+    }
+
+    std::filesystem::path uimgPath = std::filesystem::path(outputDir) / std::string(asset["dump_path"]);
+    json uimg;
+    {
+        std::ifstream f(uimgPath);
+        f >> uimg;
+    }
+
+    // Iterate over elements, if no name, lookup hash and add if found
+    for (auto& elem : uimg["elements"])
+    {
+        if (elem.find("name") != elem.end())
+        {
+            continue;
+        }
+
+        const std::string& hashStr = elem["subtexture_hash"];
+        uint32_t hash = strtoul(hashStr.c_str(), nullptr, 16);
+        if (halfHashMap.find(hash) == halfHashMap.end())
+        {
+            continue;
+        }
+
+        const std::string& name = halfHashMap.at(hash);
+        logger->info("Found name for uimg subtexture {}: {}", hashStr, name);
+        elem["name"] = name;
+    }
+
+    // Write out modified uimg file
+    std::ofstream output(uimgPath);
+    output << std::setw(2) << uimg << std::endl;
+
+    logger->info("Updated names in uimg file: {}", uimgPath.string());
+}
+
+void AddNamingCommand(CLI::App& app)
+{
+    CLI::App* command = app.add_subcommand("naming", "Add names to assets");
+
+    auto params = std::make_shared<NamingParams>();
+    command->add_option("-b,--bindir", params->BinDir, "Path to x64_retail in your Titanfall 2 folder")
+        ->required();
+    command->add_option("-o,--outputdir", params->OutputDir, "Path to folder to extracted assets", true);
+    command->add_option("-k,--knownassets", params->KnownAssets, "Path to file with list of known asset names");
+    command->add_flag("-v", VerbosityCallback, "Verbose output (-vv for very verbose)");
+    command->add_option("rpak_name", params->RPakName, "Name of RPak file from which to rename assets (e.g. sp_training)")
+        ->required();
+
+    command->callback([params]() {
+        using json = nlohmann::json;
+        auto logger = spdlog::get("logger");
+
+        // Check that bindir exists
+        logger->debug("TTF2 binary directory: {}", params->BinDir);
+        if (!std::filesystem::is_directory(params->BinDir))
+        {
+            throw std::runtime_error(fmt::format("Invalid --bindir: {} does not exist or is inaccessible", params->BinDir));
+        }
+
+        // Create outputdir if it doesn't already exist
+        logger->debug("Output directory: {}", params->OutputDir);
+        std::filesystem::create_directories(params->OutputDir);
+
+        InitializeFupa(params->BinDir);
+
+        std::unordered_set<std::string> strings;
+
+        // Read all the asset database json files to create set of all known strings
+        std::map<uint64_t, std::string> dumpedFilesMap;
+        for (auto& p : std::filesystem::directory_iterator(params->OutputDir))
+        {
+            if (p.path().extension() == ".json")
+            {
+                logger->info("Loading asset database {}", p.path().string());
+
+                json db;
+                std::ifstream f(p.path());
+                f >> db;
+
+                std::unordered_set<std::string> thisDBStrings = db["strings"];
+                strings.merge(thisDBStrings);
+            }
+        }
+
+        // Read the current RPak's database
+        json assetDB;
+        {
+            std::ifstream f(std::filesystem::path(params->OutputDir) / (params->RPakName + ".json"));
+            f >> assetDB;
+        }
+
+        // Load known strings
+        if (params->KnownAssets != "")
+        {
+            logger->debug("Known assets file: {}", params->KnownAssets);
+            if (!std::filesystem::exists(params->KnownAssets))
+            {
+                throw std::runtime_error(fmt::format("Invalid --knownassets: {} does not exist or is inaccessible", params->KnownAssets));
+            }
+
+            std::ifstream f(params->KnownAssets);
+            if (!f.is_open())
+            {
+                throw std::runtime_error("Failed to open known assets file");
+            }
+
+            std::string line;
+            while (std::getline(f, line))
+            {
+                if (line.size() > 0)
+                {
+                    strings.insert(line);
+                }
+            }
+        }
+
+        strings.insert("scripts/keys_controller_xone.rson");
+        strings.insert("scripts/keys_controller_ps4.rson");
+        strings.insert("scripts/keys_keyboard.rson");
+        strings.insert("scripts/audio/banks.rson");
+        strings.insert("scripts/skins.rson");
+        strings.insert("scripts/audio/metadata_tags.rson");
+        strings.insert("scripts/vscripts/scripts.rson");
+        strings.insert("scripts/audio/environments.rson");
+        strings.insert("scripts/audio/soundmeter_busses.rson");
+        strings.insert("scripts/entitlements.rson");
+
+        // Go through each string and work out hashes. Also hash a version of the string with
+        // .rpak on the end if it doesn't already have it.
+        std::unordered_map<uint64_t, std::string> fullHashMap;
+        fullHashMap.reserve(strings.size());
+        std::unordered_map<uint32_t, std::string> halfHashMap;
+        halfHashMap.reserve(strings.size());
+
+        for (const auto& str : strings)
+        {
+            AddStringToMaps(str, fullHashMap, halfHashMap);
+            if (str.find('\\') != std::string::npos)
+            {
+                std::string replaced = str;
+                Util::ReplaceAll(replaced, "\\", "/");
+                AddStringToMaps(replaced, fullHashMap, halfHashMap);
+            }
+        }
+
+        // Iterate over assets in DB. If name not set, lookup full hash and set if applicable.
+        // If there's a dump path set, rename the file and update the DB.
+        for (auto& asset : assetDB["assets"])
+        {
+            if (asset["type"] == "uimg")
+            {
+                UpdateUIMGFile(asset, params->OutputDir, halfHashMap);
+            }
+
+            if (asset.find("name") != asset.end())
+            {
+                continue;
+            }
+
+            const std::string& hashStr = asset["hash"];
+            uint64_t hash = strtoull(hashStr.c_str(), nullptr, 16);
+            if (fullHashMap.find(hash) == fullHashMap.end())
+            {
+                continue;
+            }
+
+            const std::string& name = fullHashMap.find(hash)->second;
+            asset["name"] = name;
+
+            logger->info("Found name for {}: {}", hashStr, name);
+
+            if (asset.find("dump_path") != asset.end())
+            {
+                std::string pathStr = std::string(asset["dump_path"]);
+                std::filesystem::path pathAbsolute = std::filesystem::path(params->OutputDir) / pathStr;
+                std::string folder = pathStr.substr(0, pathStr.find_first_of('\\'));
+                std::filesystem::path dest = std::filesystem::path(folder) / (name + pathAbsolute.extension().string());
+                std::filesystem::path destAbsolute = params->OutputDir / dest;
+                
+                // Attempt to move the file. If it fails because the file does not exist, check if the destination already exists.
+                // Such a situation could occur if multiple RPaks have the same asset and multiple fupas run at the same time.
+                // If dest already exists, just update the asset DB.
+                std::filesystem::create_directories(std::filesystem::path(destAbsolute).remove_filename());
+
+                try
+                {
+                    logger->debug("Moving {} to {}", pathAbsolute.string(), destAbsolute.string());
+                    std::filesystem::rename(pathAbsolute, destAbsolute);
+                }
+                catch (const std::filesystem::filesystem_error&)
+                {
+                    // Ignore
+                }
+
+                if (std::filesystem::exists(destAbsolute))
+                {
+                    asset["dump_path"] = dest.string();
+                }
+            }
+        }
+
+        // Write out the updated asset database
+        std::filesystem::path dbFile = std::filesystem::path(params->OutputDir) / (params->RPakName + ".json");
+        std::ofstream output(dbFile);
+        output << std::setw(2) << assetDB << std::endl;
+
+        logger->info("Naming complete!");
     });
 }
 
@@ -428,6 +665,7 @@ int main(int argc, char** argv)
     AddDecompressCommand(app);
     AddExtractCommand(app);
     AddPostProcessCommand(app);
+    AddNamingCommand(app);
 
     try
     {

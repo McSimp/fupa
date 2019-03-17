@@ -42,7 +42,7 @@ public:
         return ".csv";
     }
 
-    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
 
@@ -62,7 +62,7 @@ public:
             }
         }
 
-        std::set<std::string> names;
+        std::unordered_set<std::string> names;
 
         for (int32_t row = 0; row < m_metadata->RowCount; row++)
         {
@@ -294,7 +294,7 @@ public:
         return ".dds";
     }
 
-    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
 
@@ -396,13 +396,13 @@ class UIImageAtlasAsset : public BaseAsset<UIImageAtlasAsset, UIImageAtlasMetada
         return ".json";
     }
 
-    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         using json = nlohmann::json;
         auto logger = spdlog::get("logger");
         const AtlasElement* data = reinterpret_cast<const AtlasElement*>(m_data);
 
-        std::set<std::string> names;
+        std::unordered_set<std::string> names;
 
         json outputObj = json::object();
         outputObj["texture_hash"] = Util::HashToString(m_metadata->TextureHash);
@@ -529,7 +529,7 @@ public:
         }
         else
         {
-            spdlog::get("logger")->warn("No RSON parser found for type 0x{:x}", data->Type);
+            spdlog::get("logger")->error("No RSON parser found for type 0x{:x}", data->Type);
             return nullptr;
         }
     }
@@ -544,7 +544,7 @@ public:
         return ".json";
     }
 
-    std::set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
     {
         auto logger = spdlog::get("logger");
         std::ofstream output(outFilePath);
@@ -554,7 +554,7 @@ public:
     }
 
 private:
-    std::set<std::string> m_strings;
+    std::unordered_set<std::string> m_strings;
 };
 
 void RegisterCommonAssetTypes()
