@@ -14,10 +14,10 @@ size_t(RPakFile::*(RPakFile::PatchFunctions)[])(char* buffer, size_t bytesToRead
     &RPakFile::PatchFuncReplaceTwoThenRead
 };
 
-RPakFile::RPakFile(std::string name, int pakNumber, tFileOpenerFunc fileOpener) :
-    m_reader(std::move(fileOpener(name, pakNumber))),
+RPakFile::RPakFile(std::string name, int pakNumber, tRpakOpenerFunc rpakOpener) :
+    m_reader(std::move(rpakOpener(name, pakNumber))),
     m_name(name),
-    m_fileOpener(fileOpener)
+    m_rpakOpener(rpakOpener)
 {
     m_logger = spdlog::get("logger");
 }
@@ -138,7 +138,7 @@ void RPakFile::ReadHeader()
         m_logger->debug("====== RPak Links ======");
         for (uint16_t i = 0; i < m_outerHeader.NumRPakLinks; i++)
         {
-            m_reader.PushFile(m_fileOpener(m_name, m_linkedRPakNumbers[i]), true);
+            m_reader.PushFile(m_rpakOpener(m_name, m_linkedRPakNumbers[i]), true);
             m_logger->debug("{}: Size: 0x{:x}, Decompressed Size: 0x{:x}, Number: {}", i, m_linkedRPakSizes[i].SizeOnDisk, m_linkedRPakSizes[i].DecompressedSize, m_linkedRPakNumbers[i]);
         }
     }

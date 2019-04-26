@@ -54,7 +54,6 @@ std::unique_ptr<IDecompressedFileReader> FileReaderFactory(const std::string& in
     return std::make_unique<CompressedFileReader>(path);
 }
 
-
 void VerbosityCallback(size_t count)
 {
     if (count == 1)
@@ -81,7 +80,7 @@ void InitializeFupa(const std::string& binDir)
     RegisterAssetTypes();
 }
 
-std::map<std::string, int> GetPatchRPakMap(tFileOpenerFunc opener)
+std::map<std::string, int> GetPatchRPakMap(tRpakOpenerFunc opener)
 {
     // Parse patch_master.rpak
     RPakFile patchFile("patch_master", 0, opener);
@@ -98,7 +97,7 @@ std::map<std::string, int> GetPatchRPakMap(tFileOpenerFunc opener)
     return patchAsset->BuildRPakMap();
 }
 
-int GetLatestRPakNumber(tFileOpenerFunc opener, const std::string& rpakName)
+int GetLatestRPakNumber(tRpakOpenerFunc opener, const std::string& rpakName)
 {
     // Get map of asset names to latest number
     auto assetMap = GetPatchRPakMap(opener);
@@ -224,10 +223,10 @@ void AddExtractCommand(CLI::App& app)
 
         // Create file opener
         using namespace std::placeholders;
-        auto opener = std::bind(FileReaderFactory, params->InputDir, _1, _2);
+        auto rpakOpener = std::bind(FileReaderFactory, params->InputDir, _1, _2);
 
         // Load the rpak
-        RPakFile pak(params->RPakName, GetLatestRPakNumber(opener, params->RPakName), opener);
+        RPakFile pak(params->RPakName, GetLatestRPakNumber(rpakOpener, params->RPakName), rpakOpener);
         pak.Load();
 
         // Create JSON array for database
@@ -370,10 +369,10 @@ void AddPostProcessCommand(CLI::App& app)
 
         // Create file opener
         using namespace std::placeholders;
-        auto opener = std::bind(FileReaderFactory, params->InputDir, _1, _2);
+        auto rpakOpener = std::bind(FileReaderFactory, params->InputDir, _1, _2);
 
         // Load the rpak
-        RPakFile pak(params->RPakName, GetLatestRPakNumber(opener, params->RPakName), opener);
+        RPakFile pak(params->RPakName, GetLatestRPakNumber(rpakOpener, params->RPakName), rpakOpener);
         pak.Load();
 
         // Iterate over asset defs and dump those which support post-processing dumps

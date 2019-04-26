@@ -3,12 +3,12 @@
 const size_t kNumSlots = 4;
 const size_t kNumPatchFunctions = 7;
 
-typedef std::function<std::unique_ptr<IDecompressedFileReader>(const std::string&, int)> tFileOpenerFunc;
+typedef std::function<std::unique_ptr<IDecompressedFileReader>(const std::string&, int)> tRpakOpenerFunc;
 
 class RPakFile
 {
 public:
-    RPakFile(std::string name, int pakNumber, tFileOpenerFunc fileOpener);
+    RPakFile(std::string name, int pakNumber, tRpakOpenerFunc rpakOpener);
     ~RPakFile();
     void Load();
     uint32_t GetNumAssets();
@@ -39,7 +39,7 @@ private:
     std::shared_ptr<spdlog::logger> m_logger;
     ChainedReader m_reader;
     std::string m_name;
-    tFileOpenerFunc m_fileOpener;
+    tRpakOpenerFunc m_rpakOpener;
 
     OuterHeader m_outerHeader;
 
