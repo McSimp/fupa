@@ -64,7 +64,9 @@ private:
 
     // Starpak links
     std::vector<std::string> m_starpakPaths;
+#ifdef APEX
     std::vector<std::string> m_fullStarpakPaths;
+#endif
 
     // Slots
     std::unique_ptr<SlotDescriptor[]> m_slotDescriptors;

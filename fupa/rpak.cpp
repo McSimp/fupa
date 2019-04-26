@@ -155,6 +155,7 @@ void RPakFile::ReadHeader()
         m_starpakPaths = ParseStarpakBlock(starpakBlock.get(), m_outerHeader.StarpakPathBlockSize);
     }
 
+#ifdef APEX
     if (m_outerHeader.FullStarpakPathBlockSize != 0)
     {
         m_logger->debug("====== Full Starpak Paths ======");
@@ -165,6 +166,7 @@ void RPakFile::ReadHeader()
 
         m_fullStarpakPaths = ParseStarpakBlock(fullStarpakBlock.get(), m_outerHeader.FullStarpakPathBlockSize);
     }
+#endif
 
     if (m_outerHeader.NumSlotDescriptors == 0)
     {
