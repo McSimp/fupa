@@ -17,10 +17,10 @@ public:
     virtual std::string GetOutputFileExtension() = 0;
 
     virtual bool CanDump() = 0;
-    virtual std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) = 0; // return a list of strings that can be used later for asset names
+    virtual std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath, StarpakReader& starpakReader) = 0; // return a list of strings that can be used later for asset names
 
     virtual bool CanDumpPost() = 0;
-    virtual std::unordered_set<std::string> DumpPost(tDumpedFileOpenerFunc opener, const std::filesystem::path& outFilePath) = 0; // return a list of strings that can be used later for asset names
+    virtual std::unordered_set<std::string> DumpPost(tDumpedFileOpenerFunc opener, const std::filesystem::path& outFilePath, StarpakReader& starpakReader) = 0; // return a list of strings that can be used later for asset names
 };
 
 struct AssetDefinition;
@@ -71,7 +71,7 @@ public:
         return false;
     }
 
-    std::unordered_set<std::string> Dump(const std::filesystem::path& outputFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outputFilePath, StarpakReader& starpakReader) override
     {
         throw std::runtime_error(fmt::format("Dump not implemented for {}", m_asset->Type));
     }
@@ -81,7 +81,7 @@ public:
         return false;
     }
 
-    std::unordered_set<std::string> DumpPost(tDumpedFileOpenerFunc opener, const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> DumpPost(tDumpedFileOpenerFunc opener, const std::filesystem::path& outFilePath, StarpakReader& starpakReader) override
     {
         throw std::runtime_error(fmt::format("DumpPost not implemented for {}", m_asset->Type));
     }

@@ -78,6 +78,9 @@
     <ClInclude Include="ttf2\ttf2_types.h">
       <Filter>Header Files\ttf2</Filter>
     </ClInclude>
+    <ClInclude Include="StarpakReader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -118,6 +121,9 @@
     </ClCompile>
     <ClCompile Include="ttf2\ttf2_assets.cpp">
       <Filter>Source Files\ttf2</Filter>
+    </ClCompile>
+    <ClCompile Include="StarpakReader.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

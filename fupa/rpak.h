@@ -14,6 +14,10 @@ public:
     uint32_t GetNumAssets();
     const AssetDefinition* GetAssetDefinition(uint32_t index);
     std::unique_ptr<IAsset> GetAsset(uint32_t index);
+    const std::vector<std::string>& GetStarpakPaths() const;
+#ifdef APEX
+    const std::vector<std::string>& GetFullStarpakPaths() const;
+#endif
 
 private:
     void ReadHeader();

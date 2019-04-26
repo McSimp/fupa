@@ -47,7 +47,7 @@ public:
         return true;
     }
 
-    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath, StarpakReader& starpakReader) override
     {
         using json = nlohmann::json;
 
@@ -174,7 +174,7 @@ public:
         return info;
     }
 
-    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath, StarpakReader& starpakReader) override
     {
         json info = LayoutToJSON(m_metadata);
         std::ofstream output(outFilePath);
@@ -303,7 +303,7 @@ public:
         return out;
     }
 
-    std::unordered_set<std::string> DumpPost(tDumpedFileOpenerFunc opener, const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> DumpPost(tDumpedFileOpenerFunc opener, const std::filesystem::path& outFilePath, StarpakReader& starpakReader) override
     {
         auto logger = spdlog::get("logger");
         json data;

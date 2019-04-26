@@ -101,6 +101,7 @@
     <ClInclude Include="PreprocessedFileReader.h" />
     <ClInclude Include="rpak.h" />
     <ClInclude Include="rtech.h" />
+    <ClInclude Include="StarpakReader.h" />
     <ClInclude Include="ttf2\ttf2_types.h" />
     <ClInclude Include="Util.h" />
   </ItemGroup>
@@ -119,6 +120,7 @@
     <ClCompile Include="PreprocessedFileReader.cpp" />
     <ClCompile Include="rpak.cpp" />
     <ClCompile Include="rtech.cpp" />
+    <ClCompile Include="StarpakReader.cpp" />
     <ClCompile Include="ttf2\ttf2_assets.cpp" />
     <ClCompile Include="util.cpp" />
   </ItemGroup>

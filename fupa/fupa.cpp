@@ -184,6 +184,26 @@ struct ExtractParams
     std::string RPakName;
 };
 
+StarpakReader CreateStarpakReader(const std::string& inputDir, const RPakFile& rpak)
+{
+    StarpakReader reader;
+    const auto& starpakPaths = rpak.GetStarpakPaths();
+    for (const auto& path : starpakPaths)
+    {
+        reader.AddStarpakFile(inputDir, path);
+    }
+
+#ifdef APEX
+    const auto& fullStarpakPaths = rpak.GetFullStarpakPaths();
+    for (const auto& path : fullStarpakPaths)
+    {
+        reader.AddFullStarpakFile(inputDir, path);
+    }
+#endif
+
+    return std::move(reader);
+}
+
 void AddExtractCommand(CLI::App& app)
 {
     CLI::App* command = app.add_subcommand("extract", "Extract an RPak file");
@@ -229,6 +249,9 @@ void AddExtractCommand(CLI::App& app)
         RPakFile pak(params->RPakName, GetLatestRPakNumber(rpakOpener, params->RPakName), rpakOpener);
         pak.Load();
 
+        // Create starpak reader
+        StarpakReader starpakReader = CreateStarpakReader(params->InputDir, pak);
+
         // Create JSON array for database
         using json = nlohmann::json;
         json assetDB = json::object();
@@ -257,7 +280,7 @@ void AddExtractCommand(CLI::App& app)
                     std::filesystem::path outputFileDir = outputFile;
                     outputFileDir.remove_filename();
                     std::filesystem::create_directories(outputFileDir);
-                    auto thisAssetStrings = asset->Dump(outputFile);
+                    auto thisAssetStrings = asset->Dump(outputFile, starpakReader);
                     assetStrings.merge(thisAssetStrings);
                     assetInfo["dump_path"] = asset->GetOutputFilePath().string();
                 }
@@ -375,6 +398,9 @@ void AddPostProcessCommand(CLI::App& app)
         RPakFile pak(params->RPakName, GetLatestRPakNumber(rpakOpener, params->RPakName), rpakOpener);
         pak.Load();
 
+        // Create starpak reader
+        StarpakReader starpakReader = CreateStarpakReader(params->InputDir, pak);
+
         // Iterate over asset defs and dump those which support post-processing dumps
         auto dumpedOpener = std::bind(DumpedFileReaderFactory, params->OutputDir, dumpedFilesMap, _1);
         for (uint32_t i = 0; i < pak.GetNumAssets(); i++)
@@ -386,7 +412,7 @@ void AddPostProcessCommand(CLI::App& app)
                 std::filesystem::path outputFileDir = outputFile;
                 outputFileDir.remove_filename();
                 std::filesystem::create_directories(outputFileDir);
-                auto thisAssetStrings = asset->DumpPost(dumpedOpener, outputFile);
+                auto thisAssetStrings = asset->DumpPost(dumpedOpener, outputFile, starpakReader);
                 strings.merge(thisAssetStrings);
                 thisRPakDB["assets"][i]["dump_path"] = asset->GetOutputFilePath().string();
             }

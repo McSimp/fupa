@@ -14,11 +14,11 @@ std::filesystem::path GetRpakPath(std::filesystem::path basePath, std::string na
 {
     if (pakNumber == 0)
     {
-        return basePath / (name + ".rpak");
+        return basePath / "paks" / "Win64" / (name + ".rpak");
     }
     else
     {
-        return basePath / fmt::format("{}({:02d}).rpak", name, pakNumber);
+        return basePath / "paks" / "Win64" / fmt::format("{}({:02d}).rpak", name, pakNumber);
     }
 }
 

@@ -82,6 +82,18 @@ std::unique_ptr<IAsset> RPakFile::GetAsset(uint32_t index)
     return result;
 }
 
+const std::vector<std::string>& RPakFile::GetStarpakPaths() const
+{
+    return m_starpakPaths;
+}
+
+#ifdef APEX
+const std::vector<std::string>& RPakFile::GetFullStarpakPaths() const
+{
+    return m_fullStarpakPaths;
+}
+#endif
+
 void RPakFile::ReadHeader()
 {
     // Read the outer header

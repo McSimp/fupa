@@ -42,7 +42,7 @@ public:
         return ".csv";
     }
 
-    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath, StarpakReader& starpakReader) override
     {
         auto logger = spdlog::get("logger");
 
@@ -294,7 +294,7 @@ public:
         return ".dds";
     }
 
-    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath, StarpakReader& starpakReader) override
     {
         auto logger = spdlog::get("logger");
 
@@ -396,7 +396,7 @@ class UIImageAtlasAsset : public BaseAsset<UIImageAtlasAsset, UIImageAtlasMetada
         return ".json";
     }
 
-    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath, StarpakReader& starpakReader) override
     {
         using json = nlohmann::json;
         auto logger = spdlog::get("logger");
@@ -544,7 +544,7 @@ public:
         return ".json";
     }
 
-    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath, StarpakReader& starpakReader) override
     {
         auto logger = spdlog::get("logger");
         std::ofstream output(outFilePath);
@@ -588,7 +588,7 @@ public:
         return ".json";
     }
 
-    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath) override
+    std::unordered_set<std::string> Dump(const std::filesystem::path& outFilePath, StarpakReader& starpakReader) override
     {
         auto logger = spdlog::get("logger");
         json info;
