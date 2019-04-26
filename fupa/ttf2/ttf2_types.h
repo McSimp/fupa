@@ -73,5 +73,27 @@ struct TextureMetadata
     uint8_t SkippedMips; // Number of mip levels that aren't present (starting from largest size)
 };
 
+struct MaterialMetadata
+{
+    uint64_t VTableSlot;
+    uint64_t Unknown0;
+    uint64_t Hash;
+    char* Name;
+    char* SurfaceProp;
+    uint64_t Unknown1;
+    uint64_t ShadowMaterialHash;
+    uint64_t PrepassMaterialHash;
+    uint64_t VSMMaterialHash;
+    uint64_t TightShadowMaterialHash;
+    unsigned char UnknownData1[64];
+    uint64_t ShaderSetHash;
+    uint64_t* pTextureHashes;
+    uint64_t* pUnknown;
+    unsigned char UnknownData2[32];
+    uint16_t Width;
+    uint16_t Height;
+    uint16_t AnimationFrames;
+};
+
 #pragma pack(pop)
 #endif
